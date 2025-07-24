@@ -1,56 +1,62 @@
 import 'package:flutter/material.dart';
-import 'login_screen.dart';
-import 'register_screen.dart';
-import 'main_navigation.dart';
+import 'login_screen.dart'; // Importa la pantalla de inicio de sesión.
+import 'register_screen.dart'; // Importa la pantalla de registro.
+import 'main_navigation.dart'; // Importa la navegación principal.
 
+/// Pantalla de bienvenida inicial de la aplicación.
+/// Ofrece opciones para iniciar sesión, registrarse o continuar como invitado.
 class WelcomeScreen extends StatelessWidget {
+  const WelcomeScreen({super.key}); // Constructor constante.
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
         width: double.infinity,
-        decoration: BoxDecoration(
+        // Gradiente de fondo para la pantalla.
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              Color(0xFFFFF8DC),
-              Color(0xFFF5E6D3),
+              Color(0xFFFFF8DC), // Beige suave.
+              Color(0xFFF5E6D3), // Beige más oscuro.
             ],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
         ),
-        child: SafeArea(
+        child: SafeArea( // Asegura que el contenido no se superponga con la barra de estado/notch.
           child: Padding(
-            padding: EdgeInsets.all(32),
+            padding: const EdgeInsets.all(32), // Padding general para el contenido.
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisAlignment: MainAxisAlignment.center, // Centra los elementos verticalmente.
               children: [
-                Spacer(flex: 2),
-                
-                // Logo y marca
+                const Spacer(flex: 2), // Espaciador flexible para empujar el logo hacia arriba.
+
+                // Logo y marca de la aplicación.
                 Container(
                   width: 120,
                   height: 120,
                   decoration: BoxDecoration(
-                    color: Color(0xFF8B4513),
+                    color: const Color(0xFF8B4513), // Marrón Tierra.
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withOpacity(0.2),
                         blurRadius: 20,
-                        offset: Offset(0, 8),
+                        offset: const Offset(0, 8),
                       ),
                     ],
                   ),
                   child: Center(
-                    child: ClipOval(
+                    child: ClipOval( // Recorta la imagen en forma ovalada.
                       child: Image.asset(
-                        'assets/legado.jpg',
+                        'assets/legado.jpg', // Imagen del logo.
                         width: 100,
                         height: 100,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => Icon(
-                          Icons.temple_hindu,
+                        // `errorBuilder` para mostrar un icono si la imagen falla.
+                        errorBuilder: (context, error, stackTrace) => const Icon(
+                          Icons.temple_hindu, // Icono de fallback.
                           size: 60,
                           color: Colors.white,
                         ),
@@ -58,10 +64,11 @@ class WelcomeScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-                
-                SizedBox(height: 32),
-                
-                Text(
+
+                const SizedBox(height: 32),
+
+                // Título "LEGADO".
+                const Text(
                   'LEGADO',
                   style: TextStyle(
                     fontSize: 32,
@@ -70,10 +77,11 @@ class WelcomeScreen extends StatelessWidget {
                     letterSpacing: 4,
                   ),
                 ),
-                
-                SizedBox(height: 16),
-                
-                Text(
+
+                const SizedBox(height: 16),
+
+                // Subtítulo descriptivo.
+                const Text(
                   'Descubre la cultura que\nno está en los mapas',
                   textAlign: TextAlign.center,
                   style: TextStyle(
@@ -82,13 +90,13 @@ class WelcomeScreen extends StatelessWidget {
                     height: 1.4,
                   ),
                 ),
-                
-                Spacer(flex: 3),
-                
-                // Botones de acción
+
+                const Spacer(flex: 3), // Espaciador flexible para empujar los botones hacia abajo.
+
+                // Sección de botones de acción.
                 Column(
                   children: [
-                    Text(
+                    const Text(
                       'Selecciona una opción:',
                       style: TextStyle(
                         fontSize: 16,
@@ -96,29 +104,30 @@ class WelcomeScreen extends StatelessWidget {
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    
-                    SizedBox(height: 24),
-                    
-                    // Botón Iniciar Sesión
+
+                    const SizedBox(height: 24),
+
+                    // Botón "Iniciar Sesión".
                     SizedBox(
                       width: double.infinity,
                       height: 56,
                       child: ElevatedButton(
                         onPressed: () {
+                          // Navega a la pantalla de inicio de sesión.
                           Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (context) => LoginScreen()),
+                            MaterialPageRoute(builder: (context) => const LoginScreen()),
                           );
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Color(0xFF8B4513),
+                          backgroundColor: const Color(0xFF8B4513), // Marrón Tierra.
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
                           elevation: 4,
                         ),
-                        child: Text(
+                        child: const Text(
                           'Iniciar Sesión',
                           style: TextStyle(
                             fontSize: 18,
@@ -127,23 +136,24 @@ class WelcomeScreen extends StatelessWidget {
                         ),
                       ),
                     ),
-                    
-                    SizedBox(height: 16),
-                    
-                    // Botón Registrarse
+
+                    const SizedBox(height: 16),
+
+                    // Botón "Registrarse".
                     SizedBox(
                       width: double.infinity,
                       height: 56,
                       child: OutlinedButton(
                         onPressed: () {
+                          // Navega a la pantalla de registro.
                           Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (context) => RegisterScreen()),
+                            MaterialPageRoute(builder: (context) => const RegisterScreen()),
                           );
                         },
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: Color(0xFF8B4513),
-                          side: BorderSide(
+                          foregroundColor: const Color(0xFF8B4513),
+                          side: const BorderSide(
                             color: Color(0xFF8B4513),
                             width: 2,
                           ),
@@ -151,7 +161,7 @@ class WelcomeScreen extends StatelessWidget {
                             borderRadius: BorderRadius.circular(16),
                           ),
                         ),
-                        child: Text(
+                        child: const Text(
                           'Registrarse',
                           style: TextStyle(
                             fontSize: 18,
@@ -160,18 +170,19 @@ class WelcomeScreen extends StatelessWidget {
                         ),
                       ),
                     ),
-                    
-                    SizedBox(height: 16),
-                    
-                    // Botón Continuar como Invitado
+
+                    const SizedBox(height: 16),
+
+                    // Botón "Continuar como Invitado".
                     TextButton(
                       onPressed: () {
+                        // Navega a la navegación principal, reemplazando la ruta actual.
                         Navigator.pushReplacement(
                           context,
-                          MaterialPageRoute(builder: (context) => MainNavigation()),
+                          MaterialPageRoute(builder: (context) => const MainNavigation()),
                         );
                       },
-                      child: Text(
+                      child: const Text(
                         'Continuar como Invitado',
                         style: TextStyle(
                           fontSize: 16,
@@ -182,8 +193,8 @@ class WelcomeScreen extends StatelessWidget {
                     ),
                   ],
                 ),
-                
-                SizedBox(height: 32),
+
+                const SizedBox(height: 32),
               ],
             ),
           ),

@@ -1,32 +1,66 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // Importa Firestore
 import '../models/experience.dart';
 import 'experience_detail_screen.dart';
 
+/// Pantalla principal que muestra una lista de experiencias culturales.
+/// Permite filtrar las experiencias por categoría, cargándolas desde Firestore.
 class ExperiencesScreen extends StatefulWidget {
+  const ExperiencesScreen({super.key});
+
   @override
   _ExperiencesScreenState createState() => _ExperiencesScreenState();
 }
 
 class _ExperiencesScreenState extends State<ExperiencesScreen> {
-  String _selectedCategory = 'Todas';
-  List<Experience> _experiences = [];
+  String _selectedCategory = 'Todas'; // Categoría seleccionada actualmente.
+  // No necesitamos una lista local _experiences, usaremos FutureBuilder/StreamBuilder.
+
+  // Lista estática de categorías (pueden cargarse desde Firestore si hay una colección de categorías).
+  final List<String> _categories = [
+    'Todas',
+    'Gastronomía',
+    'Arte y Artesanía',
+    'Patrimonio',
+    'Naturaleza y Aventura',
+    'Música y Danza',
+    'Bienestar',
+  ];
 
   @override
   void initState() {
     super.initState();
-    _loadExperiences();
+    // No es necesario _loadExperiences() aquí si usamos StreamBuilder/FutureBuilder directamente.
   }
 
-  void _loadExperiences() {
-    setState(() {
-      _experiences = ExperienceData.getExperiencesByCategory(_selectedCategory);
+  /// Obtiene un Stream de experiencias desde Firestore, filtrado por categoría.
+  ///
+  /// Punto de complejidad:
+  /// Las consultas a Firestore son asíncronas. El uso de `snapshots()`
+  /// proporciona actualizaciones en tiempo real, lo que es muy potente pero
+  /// requiere manejar los estados de carga, datos y error.
+  Stream<List<Experience>> _getExperiencesStream() {
+    Query<Map<String, dynamic>> query = FirebaseFirestore.instance.collection('experiences');
+
+    if (_selectedCategory != 'Todas') {
+      query = query.where('category', isEqualTo: _selectedCategory);
+    }
+
+    // Ordenar las experiencias (opcional, pero mejora la presentación).
+    // Nota: Si ordenas por un campo que no es el ID del documento,
+    // Firestore puede requerir la creación de un índice compuesto.
+    query = query.orderBy('title', descending: false);
+
+    return query.snapshots().map((snapshot) {
+      return snapshot.docs.map((doc) => Experience.fromFirestore(doc)).toList();
     });
   }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
+        title: const Text(
           'Experiencias',
           style: TextStyle(
             color: Color(0xFF8B4513),
@@ -37,7 +71,7 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
         elevation: 0,
         actions: [
           IconButton(
-            icon: Icon(Icons.filter_list, color: Color(0xFFE67E22)),
+            icon: const Icon(Icons.filter_list, color: Color(0xFFE67E22)),
             onPressed: () {
               _showFilterBottomSheet(context);
             },
@@ -46,27 +80,45 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
       ),
       body: Column(
         children: [
-          // Filtros rápidos
+          // Sección de filtros rápidos (chips horizontales).
           Container(
             height: 60,
-            padding: EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
-              itemCount: ExperienceData.getCategories().length,
+              itemCount: _categories.length,
               itemBuilder: (context, index) {
-                final category = ExperienceData.getCategories()[index];
+                final category = _categories[index];
                 return _buildFilterChip(category, _selectedCategory == category);
               },
             ),
           ),
-          
-          // Lista de experiencias
+
+          // Lista de experiencias (ocupa el espacio restante).
+          // StreamBuilder escucha los cambios en el stream de experiencias.
           Expanded(
-            child: ListView.builder(
-              padding: EdgeInsets.all(16),
-              itemCount: _experiences.length,
-              itemBuilder: (context, index) {
-                return _buildExperienceCard(_experiences[index]);
+            child: StreamBuilder<List<Experience>>(
+              stream: _getExperiencesStream(), // Usa el stream de Firestore.
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator()); // Muestra carga.
+                }
+                if (snapshot.hasError) {
+                  return Center(child: Text('Error al cargar experiencias: ${snapshot.error}')); // Muestra error.
+                }
+                if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                  return const Center(child: Text('No hay experiencias disponibles.')); // No hay datos.
+                }
+
+                final experiences = snapshot.data!; // Las experiencias obtenidas.
+
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: experiences.length,
+                  itemBuilder: (context, index) {
+                    return _buildExperienceCard(experiences[index]);
+                  },
+                );
               },
             ),
           ),
@@ -75,68 +127,70 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
     );
   }
 
+  /// Construye un widget `FilterChip` para la selección de categorías.
   Widget _buildFilterChip(String label, bool isSelected) {
     return Container(
-      margin: EdgeInsets.only(right: 12),
+      margin: const EdgeInsets.only(right: 12),
       child: FilterChip(
         label: Text(
           label,
           style: TextStyle(
-            color: isSelected ? Colors.white : Color(0xFF8B4513),
+            color: isSelected ? Colors.white : const Color(0xFF8B4513),
             fontWeight: FontWeight.w500,
           ),
         ),
         selected: isSelected,
         onSelected: (value) {
           setState(() {
-            _selectedCategory = label;
-            _loadExperiences();
+            _selectedCategory = label; // Actualiza la categoría seleccionada.
+            // No es necesario llamar a _loadExperiences() explícitamente,
+            // StreamBuilder se encargará de reconstruir con el nuevo filtro.
           });
         },
         backgroundColor: Colors.grey[100],
-        selectedColor: Color(0xFFE67E22),
+        selectedColor: const Color(0xFFE67E22),
         checkmarkColor: Colors.white,
         side: BorderSide(
-          color: isSelected ? Color(0xFFE67E22) : Colors.grey[300]!,
+          color: isSelected ? const Color(0xFFE67E22) : Colors.grey[300]!,
         ),
       ),
     );
   }
 
+  /// Construye una tarjeta de experiencia para la lista.
   Widget _buildExperienceCard(Experience experience) {
     return Container(
-      margin: EdgeInsets.only(bottom: 16),
+      margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(15),
         boxShadow: [
           BoxShadow(
             color: Colors.grey.withOpacity(0.2),
             blurRadius: 8,
-            offset: Offset(0, 4),
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(15),
-        child: Container(
+        child: SizedBox(
           height: 120,
-          color: Colors.white,
           child: Row(
             children: [
-              // Imagen
-              Container(
+              // Sección de imagen de la tarjeta.
+              SizedBox(
                 width: 120,
                 height: 120,
                 child: Stack(
                   children: [
-                    Container(
+                    SizedBox(
                       width: double.infinity,
                       height: double.infinity,
                       child: Image.asset(
                         experience.imageAsset,
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) => Container(
-                          decoration: BoxDecoration(
+                          decoration: const BoxDecoration(
                             gradient: LinearGradient(
                               colors: [
                                 Color(0xFFE67E22),
@@ -156,17 +210,18 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
                         ),
                       ),
                     ),
+                    // Badge "Verificado" si la experiencia lo es.
                     if (experience.isVerified)
                       Positioned(
                         top: 8,
                         right: 8,
                         child: Container(
-                          padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: Color(0xFF4CAF50),
+                            color: const Color(0xFF4CAF50),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: Text(
+                          child: const Text(
                             'Verificado',
                             style: TextStyle(
                               color: Colors.white,
@@ -179,11 +234,11 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
                   ],
                 ),
               ),
-              
-              // Contenido
+
+              // Contenido de texto de la tarjeta.
               Expanded(
                 child: Padding(
-                  padding: EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -196,7 +251,7 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
                               Expanded(
                                 child: Text(
                                   experience.title,
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
                                     color: Color(0xFF5D4037),
@@ -204,14 +259,14 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
                                 ),
                               ),
                               Container(
-                                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: Color(0xFFE67E22).withOpacity(0.1),
+                                  color: const Color(0xFFE67E22).withOpacity(0.1),
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(
                                   experience.duration,
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                     fontSize: 10,
                                     color: Color(0xFFE67E22),
                                     fontWeight: FontWeight.w500,
@@ -220,19 +275,19 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
                               ),
                             ],
                           ),
-                          SizedBox(height: 4),
+                          const SizedBox(height: 4),
                           Row(
                             children: [
-                              Icon(
+                              const Icon(
                                 Icons.location_on,
                                 size: 12,
                                 color: Color(0xFF8D6E63),
                               ),
-                              SizedBox(width: 2),
+                              const SizedBox(width: 2),
                               Expanded(
                                 child: Text(
                                   experience.location,
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                     fontSize: 11,
                                     color: Color(0xFF8D6E63),
                                   ),
@@ -240,11 +295,11 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
                               ),
                               Row(
                                 children: [
-                                  Icon(Icons.star, size: 12, color: Colors.amber),
-                                  SizedBox(width: 2),
+                                  const Icon(Icons.star, size: 12, color: Colors.amber),
+                                  const SizedBox(width: 2),
                                   Text(
                                     experience.rating.toString(),
-                                    style: TextStyle(
+                                    style: const TextStyle(
                                       fontSize: 11,
                                       color: Color(0xFF8D6E63),
                                     ),
@@ -255,14 +310,14 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
                           ),
                         ],
                       ),
-                      
-                      // Precio y botón
+
+                      // Precio y botón "Ver más".
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
                             '\$${experience.price} MXN',
-                            style: TextStyle(
+                            style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
                               color: Color(0xFFE67E22),
@@ -280,14 +335,14 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
                               );
                             },
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Color(0xFFE67E22),
+                              backgroundColor: const Color(0xFFE67E22),
                               foregroundColor: Colors.white,
-                              minimumSize: Size(70, 28),
+                              minimumSize: const Size(70, 28),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
                             ),
-                            child: Text(
+                            child: const Text(
                               'Ver más',
                               style: TextStyle(fontSize: 11),
                             ),
@@ -305,6 +360,7 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
     );
   }
 
+  /// Devuelve un icono de Material Design basado en el nombre de la categoría.
   IconData _getIconForCategory(String category) {
     switch (category) {
       case 'Gastronomía':
@@ -324,75 +380,93 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
     }
   }
 
+  /// Muestra un BottomSheet con opciones de filtro para las experiencias.
+  /// Ahora el BottomSheet es interactivo y actualiza la categoría seleccionada.
   void _showFilterBottomSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
-      shape: RoundedRectangleBorder(
+      shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) {
-        return Container(
-          padding: EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Filtrar experiencias',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF8B4513),
-                ),
-              ),
-              SizedBox(height: 20),
-              Text(
-                'Categorías',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF5D4037),
-                ),
-              ),
-              SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
+        // StatefulBuilder permite que el BottomSheet tenga su propio estado.
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            String tempSelectedCategory = _selectedCategory; // Estado temporal para el modal.
+
+            return Container(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  'Gastronomía',
-                  'Arte y Artesanía', 
-                  'Patrimonio',
-                  'Naturaleza y Aventura',
-                  'Música y Danza',
-                  'Bienestar'
-                ].map((category) => FilterChip(
-                  label: Text(category),
-                  selected: false,
-                  onSelected: (value) {},
-                )).toList(),
-              ),
-              SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: Text('Cancelar'),
+                  const Text(
+                    'Filtrar experiencias',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF8B4513),
                     ),
                   ),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Color(0xFFE67E22),
-                      ),
-                      child: Text('Aplicar'),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Categorías',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF5D4037),
                     ),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    children: _categories.map((category) => FilterChip(
+                      label: Text(category),
+                      selected: tempSelectedCategory == category, // Usa el estado temporal.
+                      onSelected: (value) {
+                        setModalState(() { // Actualiza el estado del modal.
+                          tempSelectedCategory = category;
+                        });
+                      },
+                      backgroundColor: Colors.grey[100],
+                      selectedColor: const Color(0xFFE67E22),
+                      checkmarkColor: Colors.white,
+                      side: BorderSide(
+                        color: tempSelectedCategory == category ? const Color(0xFFE67E22) : Colors.grey[300]!,
+                      ),
+                    )).toList(),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Cancelar'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            // Al aplicar, actualiza el estado de la pantalla principal y cierra el modal.
+                            setState(() {
+                              _selectedCategory = tempSelectedCategory;
+                            });
+                            Navigator.pop(context);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFE67E22),
+                          ),
+                          child: const Text('Aplicar'),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );

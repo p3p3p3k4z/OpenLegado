@@ -16,6 +16,12 @@ dependencies:
   location: ^5.0.3
   http: ^1.2.1
 
+  firebase_core: ^3.0.0
+  # Cloud Firestore para la base de datos NoSQL
+  cloud_firestore: ^5.0.0
+  # Firebase Auth para la autenticación de usuarios
+  firebase_auth: ^5.0.0
+  
 dev_dependencies:
   flutter_test:
     sdk: flutter
