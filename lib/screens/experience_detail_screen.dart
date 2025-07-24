@@ -5,8 +5,8 @@ import '../models/experience.dart';
 
 /// Pantalla de detalles de una experiencia.
 /// Muestra información completa sobre una experiencia cultural específica.
-/// Ahora incluye la funcionalidad de marcar/desmarcar como favorita,
-/// persistiendo el estado en Firebase Firestore.
+/// Ahora incluye la funcionalidad de marcar/desmarcar como favorita y
+/// de realizar una reserva, persistiendo el estado en Firebase Firestore.
 class ExperienceDetailScreen extends StatefulWidget {
   final Experience experience;
 
@@ -19,6 +19,11 @@ class ExperienceDetailScreen extends StatefulWidget {
 class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
   bool _isFavorite = false; // Estado local para la UI del botón de favorito.
   bool _isLoadingFavorite = false; // Para mostrar un indicador de carga en el botón de favorito.
+  bool _isBooking = false; // Nuevo estado para controlar el indicador de carga del botón de reserva.
+
+  // Controladores para el formulario de reserva
+  DateTime? _selectedDate;
+  final TextEditingController _peopleController = TextEditingController(text: '1'); // Valor inicial de 1 persona
 
   @override
   void initState() {
@@ -123,6 +128,239 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
     );
   }
 
+  /// Muestra un diálogo para que el usuario seleccione una fecha de reserva.
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate ?? DateTime.now(),
+      firstDate: DateTime.now(),
+      lastDate: DateTime(DateTime.now().year + 2), // Permite reservas hasta 2 años en el futuro.
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: const Color(0xFFE67E22), // Color de encabezado y botones
+              onPrimary: Colors.white, // Color del texto en el encabezado
+              onSurface: const Color(0xFF5D4037), // Color del texto del calendario
+            ),
+            textButtonTheme: TextButtonThemeData(
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFFE67E22), // Color de los botones de texto
+              ),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null && picked != _selectedDate) {
+      setState(() {
+        _selectedDate = picked;
+      });
+    }
+  }
+
+  /// Muestra un diálogo de formulario de reserva.
+  ///
+  /// Punto de complejidad:
+  /// Este diálogo recolecta los datos de reserva del usuario.
+  /// Es importante validar la entrada del usuario y manejar el proceso
+  /// de guardado en Firestore.
+  void _showBookingForm() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _showSnackBar('Debes iniciar sesión para realizar una reserva.', Colors.orange);
+      return;
+    }
+
+    // Reinicia los valores del formulario cada vez que se abre el diálogo
+    _selectedDate = null;
+    _peopleController.text = '1';
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder( // StatefulBuilder para que el diálogo pueda actualizar su estado interno
+        builder: (BuildContext context, StateSetter setModalState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            title: Text(
+              'Reservar ${widget.experience.title}',
+              style: const TextStyle(
+                color: Color(0xFF8B4513),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Selector de fecha
+                ListTile(
+                  title: Text(
+                    _selectedDate == null
+                        ? 'Seleccionar fecha'
+                        : 'Fecha: ${MaterialLocalizations.of(context).formatShortDate(_selectedDate!)}',
+                    style: TextStyle(
+                      color: _selectedDate == null ? Colors.grey[600] : const Color(0xFF5D4037),
+                    ),
+                  ),
+                  trailing: const Icon(Icons.calendar_today, color: Color(0xFFE67E22)),
+                  onTap: () async {
+                    await _selectDate(context);
+                    setModalState(() {}); // Actualiza el estado del diálogo después de seleccionar la fecha
+                  },
+                ),
+                const SizedBox(height: 16),
+                // Selector de número de personas
+                TextField(
+                  controller: _peopleController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'Número de personas',
+                    hintText: 'Ej. 2',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFFE67E22), width: 2),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text(
+                  'Cancelar',
+                  style: TextStyle(color: Color(0xFF8D6E63)),
+                ),
+              ),
+              ElevatedButton(
+                onPressed: _isBooking ? null : () => _createBooking(context), // Llama a la función de crear reserva
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFE67E22),
+                  foregroundColor: Colors.white,
+                ),
+                child: _isBooking
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text('Confirmar Reserva'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// Crea una nueva reserva en la colección 'bookings' de Firestore.
+  Future<void> _createBooking(BuildContext dialogContext) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _showSnackBar('Debes iniciar sesión para realizar una reserva.', Colors.orange);
+      Navigator.pop(dialogContext); // Cierra el diálogo si no hay usuario
+      return;
+    }
+
+    if (_selectedDate == null) {
+      _showSnackBar('Por favor, selecciona una fecha para la reserva.', Colors.red);
+      return;
+    }
+
+    final int? numberOfPeople = int.tryParse(_peopleController.text.trim());
+    if (numberOfPeople == null || numberOfPeople <= 0) {
+      _showSnackBar('Por favor, ingresa un número válido de personas.', Colors.red);
+      return;
+    }
+
+    setState(() {
+      _isBooking = true; // Activa el indicador de carga del botón de reserva
+    });
+
+    try {
+      await FirebaseFirestore.instance.collection('bookings').add({
+        'userId': user.uid,
+        'experienceId': widget.experience.id,
+        'experienceTitle': widget.experience.title, // Denormalización
+        'experienceImage': widget.experience.imageAsset, // Denormalización
+        'bookingDate': Timestamp.fromDate(_selectedDate!),
+        'numberOfPeople': numberOfPeople,
+        'status': 'pending', // Estado inicial de la reserva
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      // Muestra el diálogo de confirmación de reserva (tu diálogo original)
+      Navigator.pop(dialogContext); // Cierra el diálogo del formulario
+      _showBookingConfirmationDialog(); // Muestra el diálogo de confirmación
+
+    } on FirebaseException catch (e) {
+      _showSnackBar('Error al crear reserva: ${e.message}', Colors.red);
+      print('Firebase Error creating booking: $e');
+    } catch (e) {
+      _showSnackBar('Ocurrió un error inesperado al crear reserva: $e', Colors.red);
+      print('General Error creating booking: $e');
+    } finally {
+      setState(() {
+        _isBooking = false; // Desactiva el indicador de carga
+      });
+    }
+  }
+
+  /// Muestra el diálogo de confirmación de reserva (tu diálogo original).
+  void _showBookingConfirmationDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: const Text(
+          '¡Reserva Confirmada!',
+          style: TextStyle(
+            color: Color(0xFF8B4513),
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.check_circle,
+              size: 64,
+              color: Color(0xFF4CAF50),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Tu reserva para "${widget.experience.title}" ha sido confirmada.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 16,
+                color: Color(0xFF5D4037),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Cerrar',
+              style: TextStyle(color: Color(0xFFE67E22)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _peopleController.dispose(); // Libera el controlador de texto
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -137,7 +375,6 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
               onPressed: () => Navigator.pop(context),
             ),
             actions: [
-              // Botón de favorito, ahora con lógica Firebase y estado de carga.
               _isLoadingFavorite
                   ? const Padding(
                 padding: EdgeInsets.all(16.0),
@@ -155,7 +392,7 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
                   _isFavorite ? Icons.favorite : Icons.favorite_border,
                   color: _isFavorite ? Colors.red : Colors.white,
                 ),
-                onPressed: _toggleFavorite, // Llama a la función para alternar el favorito.
+                onPressed: _toggleFavorite,
               ),
               IconButton(
                 icon: const Icon(Icons.share, color: Colors.white),
@@ -242,6 +479,7 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
                   _buildPriceAndDuration(),
                   const SizedBox(height: 32),
 
+                  // Botón de reserva, ahora llama a _showBookingForm
                   _buildBookingButton(),
                   const SizedBox(height: 24),
                 ],
@@ -369,7 +607,7 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
+        const Text(
           'Descripción',
           style: TextStyle(
             fontSize: 20,
@@ -396,7 +634,7 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
+        const Text(
           'Lo que incluye',
           style: TextStyle(
             fontSize: 20,
@@ -436,7 +674,7 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
+        const Text(
           'Ubicación',
           style: TextStyle(
             fontSize: 20,
@@ -589,60 +827,13 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
     );
   }
 
-  void _showBookingDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        title: const Text(
-          '¡Reserva Confirmada!',
-          style: TextStyle(
-            color: Color(0xFF8B4513),
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.check_circle,
-              size: 64,
-              color: Color(0xFF4CAF50),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Tu reserva para "${widget.experience.title}" ha sido confirmada.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 16,
-                color: Color(0xFF5D4037),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text(
-              'Cerrar',
-              style: TextStyle(color: Color(0xFFE67E22)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
+  /// Construye el botón de reserva, ahora llama a _showBookingForm.
   Widget _buildBookingButton() {
     return SizedBox(
       width: double.infinity,
       height: 56,
       child: ElevatedButton(
-        onPressed: () {
-          _showBookingDialog();
-        },
+        onPressed: _showBookingForm, // Llama al formulario de reserva
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFFE67E22),
           foregroundColor: Colors.white,

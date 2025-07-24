@@ -6,10 +6,52 @@ import 'welcome_screen.dart';                          // Importa WelcomeScreen 
 import '../models/experience.dart';                    // Importa el modelo Experience
 import 'experience_detail_screen.dart';                // Para navegar a los detalles de la experiencia
 
+/// Clase de modelo simple para una reserva.
+/// Esto nos ayuda a estructurar los datos de la reserva de Firestore en un objeto Dart.
+class Booking {
+  final String id;
+  final String userId;
+  final String experienceId;
+  final String experienceTitle;
+  final String experienceImage; // Usamos la ruta de asset o URL de la imagen
+  final DateTime bookingDate;
+  final int numberOfPeople;
+  final String status; // Ej. 'pending', 'confirmed', 'cancelled'
+  final DateTime createdAt;
+
+  Booking({
+    required this.id,
+    required this.userId,
+    required this.experienceId,
+    required this.experienceTitle,
+    required this.experienceImage,
+    required this.bookingDate,
+    required this.numberOfPeople,
+    required this.status,
+    required this.createdAt,
+  });
+
+  /// Constructor de fábrica para crear una instancia de Booking desde un DocumentSnapshot de Firestore.
+  factory Booking.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>?;
+    return Booking(
+      id: doc.id,
+      userId: data?['userId'] as String? ?? '',
+      experienceId: data?['experienceId'] as String? ?? '',
+      experienceTitle: data?['experienceTitle'] as String? ?? 'Experiencia Desconocida',
+      experienceImage: data?['experienceImage'] as String? ?? 'assets/placeholder.jpg',
+      bookingDate: (data?['bookingDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      numberOfPeople: (data?['numberOfPeople'] as num?)?.toInt() ?? 1,
+      status: data?['status'] as String? ?? 'pending',
+      createdAt: (data?['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
+}
+
 /// Pantalla de perfil de usuario.
 /// Muestra información del usuario, estadísticas y opciones de configuración,
-/// cargando datos dinámicamente desde Firebase Firestore, incluyendo intereses
-/// y experiencias favoritas.
+/// cargando datos dinámicamente desde Firebase Firestore, incluyendo intereses,
+/// experiencias favoritas e historial de reservas.
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -158,6 +200,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
             // Experiencias favoritas (AHORA DINÁMICAS)
             _buildFavoritesSection(),
+            const SizedBox(height: 24),
+
+            // Historial de Reservas (NUEVA SECCIÓN)
+            _buildBookingHistorySection(),
             const SizedBox(height: 24),
 
             // Opciones del perfil
@@ -489,17 +535,179 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  /// Construye la sección de historial de reservas.
+  /// Carga y muestra las reservas del usuario actual desde Firestore.
+  Widget _buildBookingHistorySection() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return const Center(child: Text('Inicia sesión para ver tu historial de reservas.'));
+    }
+
+    // StreamBuilder para escuchar cambios en la colección 'bookings' del usuario.
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('bookings')
+          .where('userId', isEqualTo: user.uid) // Filtra por el ID del usuario actual.
+          .orderBy('bookingDate', descending: true) // Ordena por fecha de reserva (más reciente primero).
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Error al cargar historial: ${snapshot.error}'));
+        }
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return const Center(child: Text('Aún no tienes reservas.'));
+        }
+
+        final bookings = snapshot.data!.docs
+            .map((doc) => Booking.fromFirestore(doc))
+            .toList();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Historial de Reservas',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF8B4513),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Utiliza un ListView.builder para mostrar la lista de reservas.
+            // Se usa ShrinkWrap y NeverScrollableScrollPhysics para que el ListView
+            // se ajuste al tamaño de su contenido dentro del SingleChildScrollView principal.
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: bookings.length,
+              itemBuilder: (context, index) {
+                return _buildBookingCard(bookings[index]);
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Construye una tarjeta individual para una reserva en el historial.
+  Widget _buildBookingCard(Booking booking) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Imagen de la experiencia reservada
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: SizedBox(
+              width: 60,
+              height: 60,
+              child: Image.asset(
+                booking.experienceImage, // Usamos la imagen de la experiencia
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  color: Colors.grey[200],
+                  child: const Icon(Icons.image_not_supported, color: Colors.grey),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  booking.experienceTitle,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF5D4037),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Fecha: ${MaterialLocalizations.of(context).formatShortDate(booking.bookingDate)}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF8D6E63),
+                  ),
+                ),
+                Text(
+                  'Personas: ${booking.numberOfPeople}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF8D6E63),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                // Estado de la reserva con color
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _getBookingStatusColor(booking.status).withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: Text(
+                    booking.status.toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: _getBookingStatusColor(booking.status),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Icono de flecha para detalles (opcional)
+          const Icon(Icons.chevron_right, color: Color(0xFF8D6E63)),
+        ],
+      ),
+    );
+  }
+
+  /// Devuelve un color basado en el estado de la reserva.
+  Color _getBookingStatusColor(String status) {
+    switch (status) {
+      case 'pending':
+        return Colors.orange;
+      case 'confirmed':
+        return Colors.green;
+      case 'cancelled':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
+  }
+
   /// Construye la sección de opciones del perfil (lista de ListTile).
   Widget _buildProfileOptions() {
     return Column(
       children: [
         _buildOptionItem(Icons.bookmark, 'Experiencias Guardadas', () {
-          // Ya no es necesario un TODO aquí, la sección ya es dinámica.
-          // Si quisieras una pantalla separada para "Ver todas las guardadas",
-          // aquí iría la navegación.
+          // Esta sección ya es dinámica, el onTap podría ser para una pantalla de "Ver todas"
         }),
         _buildOptionItem(Icons.history, 'Historial de Reservas', () {
-          // TODO: Implementar navegación a historial de reservas
+          // Esta sección ya es dinámica, el onTap podría ser para una pantalla de "Ver todas"
         }),
         _buildOptionItem(Icons.payment, 'Métodos de Pago', () {
           // TODO: Implementar navegación a métodos de pago
