@@ -2,7 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'screens/welcome_screen.dart';
 
-void main() => runApp(LegadoApp());
+// Importaciones de Firebase añadidas
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart'; // Este archivo se genera con `flutterfire configure`
+
+void main() async {
+  // Asegura que los widgets de Flutter estén inicializados antes de usar Firebase
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Inicializa Firebase con las opciones generadas para la plataforma actual
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  runApp(LegadoApp());
+}
 
 class LegadoApp extends StatelessWidget {
   const LegadoApp({Key? key}) : super(key: key);
@@ -23,7 +37,7 @@ class LegadoApp extends StatelessWidget {
         fontFamily: 'Georgia',
         textTheme: TextTheme(
           headlineMedium: TextStyle(
-            fontSize: 24, 
+            fontSize: 24,
             fontFamily: 'Georgia',
             fontWeight: FontWeight.bold,
             color: Color(0xFF8B4513),
@@ -150,7 +164,7 @@ class HomeScreen extends StatelessWidget {
               ),
             ),
           ),
-          
+
           // SECCIÓN DE EXPERIENCIAS DESTACADAS
           SliverToBoxAdapter(
             child: Padding(
@@ -194,7 +208,7 @@ class HomeScreen extends StatelessWidget {
               ),
             ),
           ),
-          
+
           // MAPA CULTURAL
           SliverToBoxAdapter(
             child: Padding(
@@ -306,7 +320,7 @@ class HomeScreen extends StatelessWidget {
               ),
             ),
           ),
-          
+
           // IMPACTO COMUNITARIO
           SliverToBoxAdapter(
             child: Container(
@@ -334,7 +348,7 @@ class HomeScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Tu Huella Cultural', 
+                    'Tu Huella Cultural',
                     style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                       color: Color(0xFF5D4037),
                     ),
@@ -359,16 +373,16 @@ class HomeScreen extends StatelessWidget {
                           child: Column(
                             children: [
                               Text(
-                                '128', 
+                                '128',
                                 style: TextStyle(
-                                  fontSize: 36, 
+                                  fontSize: 36,
                                   fontWeight: FontWeight.bold,
                                   color: Theme.of(context).primaryColor,
                                 ),
                               ),
                               SizedBox(height: 4),
                               Text(
-                                'Artesanos apoyados', 
+                                'Artesanos apoyados',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color: Color(0xFF6D4C41),
@@ -398,16 +412,16 @@ class HomeScreen extends StatelessWidget {
                           child: Column(
                             children: [
                               Text(
-                                '\$42,380', 
+                                '\$42,380',
                                 style: TextStyle(
-                                  fontSize: 36, 
+                                  fontSize: 36,
                                   fontWeight: FontWeight.bold,
                                   color: Color(0xFF388E3C),
                                 ),
                               ),
                               SizedBox(height: 4),
                               Text(
-                                'Al fondo comunitario', 
+                                'Al fondo comunitario',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color: Color(0xFF6D4C41),
@@ -473,7 +487,7 @@ class HomeScreen extends StatelessWidget {
           ),
         ],
       ),
-      
+
       // BARRA INFERIOR CON PATRONES MEXICANOS
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
@@ -483,20 +497,20 @@ class HomeScreen extends StatelessWidget {
           type: BottomNavigationBarType.fixed,
           items: [
             BottomNavigationBarItem(
-              icon: Icon(Icons.explore),
-              label: 'Descubrir'
+                icon: Icon(Icons.explore),
+                label: 'Descubrir'
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.map),
-              label: 'Rutas'
+                icon: Icon(Icons.map),
+                label: 'Rutas'
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.people),
-              label: 'Comunidad'
+                icon: Icon(Icons.people),
+                label: 'Comunidad'
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.bookmark),
-              label: 'Mi Legado'
+                icon: Icon(Icons.bookmark),
+                label: 'Mi Legado'
             ),
           ],
           selectedItemColor: Theme.of(context).primaryColor,
@@ -525,47 +539,47 @@ class HomeScreen extends StatelessWidget {
             // IMAGEN CON SELLO DE AUTENTICIDAD
             Stack(
               children: [                  ClipRRect(
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                    child: Container(
-                      height: 180,
-                      width: double.infinity,
-                      child: Image.asset(
-                        image,
-                        fit: BoxFit.cover,
-                        filterQuality: FilterQuality.high,
-                        isAntiAlias: true,
-                        cacheWidth: 800, // Forzar carga en alta resolución
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  Theme.of(context).primaryColor.withOpacity(0.8),
-                                  Theme.of(context).colorScheme.secondary.withOpacity(0.8),
-                                ],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                child: Container(
+                  height: 180,
+                  width: double.infinity,
+                  child: Image.asset(
+                    image,
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.high,
+                    isAntiAlias: true,
+                    cacheWidth: 800, // Forzar carga en alta resolución
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Theme.of(context).primaryColor.withOpacity(0.8),
+                              Theme.of(context).colorScheme.secondary.withOpacity(0.8),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                        ),
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.image_outlined, size: 48, color: Colors.white70),
+                              SizedBox(height: 8),
+                              Text(
+                                'Imagen en alta calidad\npronto disponible',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Colors.white70, fontSize: 14),
                               ),
-                            ),
-                            child: Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.image_outlined, size: 48, color: Colors.white70),
-                                  SizedBox(height: 8),
-                                  Text(
-                                    'Imagen en alta calidad\npronto disponible',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(color: Colors.white70, fontSize: 14),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   ),
+                ),
+              ),
                 if (isVerified)
                   Positioned(
                     top: 12,
@@ -589,12 +603,12 @@ class HomeScreen extends StatelessWidget {
                           Icon(Icons.verified, size: 16, color: Colors.white),
                           SizedBox(width: 4),
                           Text(
-                            'Auténtico', 
-                            style: TextStyle(
-                              color: Colors.white, 
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            )
+                              'Auténtico',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              )
                           ),
                         ],
                       ),
@@ -602,7 +616,7 @@ class HomeScreen extends StatelessWidget {
                   ),
               ],
             ),
-            
+
             // DETALLES
             Padding(
               padding: EdgeInsets.all(20),
@@ -610,12 +624,12 @@ class HomeScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    title, 
-                    style: TextStyle(
-                      fontSize: 20, 
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF5D4037),
-                    )
+                      title,
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF5D4037),
+                      )
                   ),
                   SizedBox(height: 8),
                   Row(
@@ -623,18 +637,18 @@ class HomeScreen extends StatelessWidget {
                       Icon(Icons.location_on, size: 18, color: Color(0xFF8D6E63)),
                       SizedBox(width: 6),
                       Expanded(
-                        child: Text(
-                          location, 
-                          style: TextStyle(
-                            color: Color(0xFF8D6E63),
-                            fontSize: 14,
+                          child: Text(
+                              location,
+                              style: TextStyle(
+                                color: Color(0xFF8D6E63),
+                                fontSize: 14,
+                              )
                           )
-                        )
                       ),
                     ],
                   ),
                   SizedBox(height: 16),
-                  
+
                   // PRECIO CON DESGLOSE COMUNITARIO
                   RichText(
                     text: TextSpan(
@@ -643,9 +657,9 @@ class HomeScreen extends StatelessWidget {
                         TextSpan(
                           text: '\$${price} MXN',
                           style: TextStyle(
-                            fontSize: 22, 
-                            fontWeight: FontWeight.bold, 
-                            color: Theme.of(context).primaryColor
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context).primaryColor
                           ),
                         ),
                         TextSpan(
@@ -655,7 +669,7 @@ class HomeScreen extends StatelessWidget {
                       ],
                     ),
                   ),
-                  
+
                   // BOTÓN CON DISEÑO MEXICANO
                   SizedBox(height: 16),
                   SizedBox(

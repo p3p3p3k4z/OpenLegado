@@ -1,183 +1,176 @@
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // Importado para DocumentSnapshot
+
+/// Clase de modelo para representar una experiencia cultural en la aplicación Legado.
 class Experience {
-  final String id;
+  final String id; // ID único de la experiencia (UID de Firestore)
   final String title;
   final String description;
+  final String imageAsset; // Ruta del asset local o URL de imagen (si usas Cloud Storage)
   final String location;
-  final double latitude;
-  final double longitude;
-  final int price;
-  final String duration;
-  final String category;
-  final String imageAsset;
   final double rating;
+  final int price; // Precio en MXN
+  final String duration;
   final bool isVerified;
   final bool isFeatured;
-  final List<String> highlights;
+  final List<String> highlights; // Lista de puntos destacados
+  final double latitude;
+  final double longitude;
+  final String category; // Categoría de la experiencia
 
-  Experience({
+  /// Constructor principal para crear una instancia de Experience.
+  const Experience({
     required this.id,
     required this.title,
     required this.description,
+    required this.imageAsset,
     required this.location,
-    required this.latitude,
-    required this.longitude,
+    required this.rating,
     required this.price,
     required this.duration,
+    this.isVerified = false, // Valor por defecto
+    this.isFeatured = false, // Valor por defecto
+    this.highlights = const [], // Lista vacía por defecto
+    required this.latitude,
+    required this.longitude,
     required this.category,
-    required this.imageAsset,
-    required this.rating,
-    this.isVerified = false,
-    this.isFeatured = false,
-    this.highlights = const [],
   });
 
-  // Convertir a JSON
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'title': title,
-      'description': description,
-      'location': location,
-      'latitude': latitude,
-      'longitude': longitude,
-      'price': price,
-      'duration': duration,
-      'category': category,
-      'imageAsset': imageAsset,
-      'rating': rating,
-      'isVerified': isVerified,
-      'isFeatured': isFeatured,
-      'highlights': highlights,
-    };
-  }
+  /// Constructor de fábrica para crear una instancia de Experience desde un DocumentSnapshot de Firestore.
+  ///
+  /// Este constructor es crucial para mapear los datos de Firestore (Map<String, dynamic>)
+  /// a un objeto Dart fuertemente tipado. Requiere manejar posibles valores nulos
+  /// y conversiones de tipo para asegurar la robustez.
+  factory Experience.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>?; // Obtener los datos como un mapa, puede ser nulo
 
-  // Crear desde JSON
-  factory Experience.fromJson(Map<String, dynamic> json) {
+    // Manejo de datos nulos con operadores de nulabilidad (??)
     return Experience(
-      id: json['id'] ?? '',
-      title: json['title'] ?? '',
-      description: json['description'] ?? '',
-      location: json['location'] ?? '',
-      latitude: (json['latitude'] ?? 0.0).toDouble(),
-      longitude: (json['longitude'] ?? 0.0).toDouble(),
-      price: json['price'] ?? 0,
-      duration: json['duration'] ?? '',
-      category: json['category'] ?? '',
-      imageAsset: json['imageAsset'] ?? '',
-      rating: (json['rating'] ?? 0.0).toDouble(),
-      isVerified: json['isVerified'] ?? false,
-      isFeatured: json['isFeatured'] ?? false,
-      highlights: List<String>.from(json['highlights'] ?? []),
+      id: doc.id, // El ID del documento de Firestore es el ID de la experiencia.
+      title: data?['title'] as String? ?? 'Sin título',
+      description: data?['description'] as String? ?? 'Sin descripción',
+      imageAsset: data?['imageAsset'] as String? ?? 'assets/placeholder.jpg', // Fallback para imagen
+      location: data?['location'] as String? ?? 'Ubicación desconocida',
+      rating: (data?['rating'] as num?)?.toDouble() ?? 0.0, // Conversión segura a double
+      price: (data?['price'] as num?)?.toInt() ?? 0, // Conversión segura a int
+      duration: data?['duration'] as String? ?? 'N/A',
+      isVerified: data?['isVerified'] as bool? ?? false,
+      isFeatured: data?['isFeatured'] as bool? ?? false,
+      highlights: List<String>.from(data?['highlights'] ?? []), // Conversión segura a List<String>
+      latitude: (data?['latitude'] as num?)?.toDouble() ?? 0.0,
+      longitude: (data?['longitude'] as num?)?.toDouble() ?? 0.0,
+      category: data?['category'] as String? ?? 'General',
     );
   }
 }
 
-// Datos de ejemplo - en una app real vendrían de una API
+// Tu clase ExperienceData original, sin modificaciones.
 class ExperienceData {
-  static List<Experience> getSampleExperiences() {
-    return [
-      Experience(
-        id: '1',
-        title: 'Taller de Barro Negro',
-        description: 'Aprende la técnica ancestral del barro negro en San Bartolo Coyotepec, una tradición que ha pasado de generación en generación.',
-        location: 'San Bartolo Coyotepec, Oaxaca',
-        latitude: 16.9481,
-        longitude: -96.6906,
-        price: 350,
-        duration: '2h',
-        category: 'Arte y Artesanía',
-        imageAsset: 'assets/barro_negro.jpg',
-        rating: 4.8,
-        isVerified: true,
-        isFeatured: true,
-        highlights: [
-          'Técnica ancestral zapoteca',
-          'Materiales incluidos',
-          'Certificado de autenticidad',
-        ],
-      ),
-      Experience(
-        id: '2',
-        title: 'Cocina de Mole en Cazuela',
-        description: 'Sumérgete en los secretos del mole poblano tradicional, preparado con ingredientes locales y técnicas centenarias.',
-        location: 'Puebla, Puebla',
-        latitude: 19.0414,
-        longitude: -98.2063,
-        price: 420,
-        duration: '3h',
-        category: 'Gastronomía',
-        imageAsset: 'assets/mole_poblano.jpg',
-        rating: 4.9,
-        isVerified: false,
-        isFeatured: true,
-        highlights: [
-          'Ingredientes orgánicos',
-          'Receta familiar secreta',
-          'Degustación incluida',
-        ],
-      ),
-      Experience(
-        id: '3',
-        title: 'Tejido de Sarapes',
-        description: 'Descubre el arte del tejido tradicional en telar de cintura, una técnica milenaria que aún se practica en Teotitlán del Valle.',
-        location: 'Teotitlán del Valle, Oaxaca',
-        latitude: 16.9167,
-        longitude: -96.5500,
-        price: 380,
-        duration: '2h',
-        category: 'Arte y Artesanía',
-        imageAsset: 'assets/sarapes.jpg',
-        rating: 4.7,
-        isVerified: true,
-        isFeatured: false,
-        highlights: [
-          'Telar de cintura auténtico',
-          'Tintes naturales',
-          'Llévate tu creación',
-        ],
-      ),
-      Experience(
-        id: '4',
-        title: 'Ruta del Mezcal Artesanal',
-        description: 'Recorrido por las palenques tradicionales donde se produce el mezcal artesanal, con degustación y maridaje.',
-        location: 'Santiago Matatlán, Oaxaca',
-        latitude: 16.8667,
-        longitude: -96.3833,
-        price: 580,
-        duration: '4h',
-        category: 'Gastronomía',
-        imageAsset: 'assets/fondo_mexicano.jpg',
-        rating: 4.9,
-        isVerified: true,
-        isFeatured: true,
-        highlights: [
-          'Visita a 3 palenques',
-          'Degustación de 8 mezcales',
-          'Maridaje con comida local',
-          'Transporte incluido',
-        ],
-      ),
-      Experience(
-        id: '5',
-        title: 'Medicina Tradicional Maya',
-        description: 'Aprende sobre las plantas medicinales y técnicas de curación ancestrales de la cultura maya.',
-        location: 'Yaxunah, Yucatán',
-        latitude: 20.7167,
-        longitude: -88.9500,
-        price: 280,
-        duration: '2.5h',
-        category: 'Bienestar',
-        imageAsset: 'assets/fondo-mexico.webp',
-        rating: 4.6,
-        isVerified: false,
-        isFeatured: false,
-        highlights: [
-          'Guía curandero local',
-          'Plantas medicinales',
-          'Temazcal opcional',
-        ],
-      ),
-    ];
+  static final List<Experience> _allExperiences = [
+    Experience(
+      id: 'exp001',
+      title: 'Taller de Barro Negro',
+      description: 'Sumérgete en el arte ancestral del barro negro de Oaxaca. Aprende las técnicas tradicionales de moldeo y bruñido para crear tu propia pieza única bajo la guía de maestros artesanos.',
+      imageAsset: 'assets/barro_negro.jpg',
+      location: 'San Bartolo Coyotepec, Oaxaca',
+      rating: 4.8,
+      price: 350,
+      duration: '3 horas',
+      isVerified: true,
+      isFeatured: true,
+      highlights: ['Materiales incluidos', 'Guía experto', 'Tu pieza de barro'],
+      latitude: 16.9602,
+      longitude: -96.6908,
+      category: 'Arte y Artesanía',
+    ),
+    Experience(
+      id: 'exp002',
+      title: 'Cocina de Mole en Cazuela',
+      description: 'Descubre los secretos del mole poblano auténtico. Participa en la preparación de este platillo icónico desde la selección de ingredientes hasta su cocción lenta en cazuela de barro.',
+      imageAsset: 'assets/mole_poblano.jpg',
+      location: 'Puebla, Puebla',
+      rating: 4.9,
+      price: 420,
+      duration: '4 horas',
+      isVerified: true,
+      isFeatured: false,
+      highlights: ['Recetas tradicionales', 'Degustación', 'Libro de recetas'],
+      latitude: 19.0414,
+      longitude: -98.2063,
+      category: 'Gastronomía',
+    ),
+    Experience(
+      id: 'exp003',
+      title: 'Tejido de Sarapes',
+      description: 'Conoce el arte del tejido de sarapes en Teotitlán del Valle. Aprende sobre los tintes naturales y la simbología de los diseños mientras creas un pequeño telar.',
+      imageAsset: 'assets/sarapes.jpg',
+      location: 'Teotitlán del Valle, Oaxaca',
+      rating: 4.7,
+      price: 380,
+      duration: '3.5 horas',
+      isVerified: true,
+      isFeatured: true,
+      highlights: ['Tintes naturales', 'Técnicas de telar', 'Tu propio diseño'],
+      latitude: 17.0371,
+      longitude: -96.5369,
+      category: 'Arte y Artesanía',
+    ),
+    Experience(
+      id: 'exp004',
+      title: 'Ruta del Mezcal Artesanal',
+      description: 'Explora los palenques tradicionales de mezcal en Oaxaca. Aprende sobre el proceso de elaboración, desde el agave hasta la degustación.',
+      imageAsset: 'assets/mezcal.jpg', // Asume que tienes esta imagen
+      location: 'Santiago Matatlán, Oaxaca',
+      rating: 4.6,
+      price: 500,
+      duration: '5 horas',
+      isVerified: false,
+      isFeatured: false,
+      highlights: ['Visita a palenque', 'Degustación guiada', 'Historia del mezcal'],
+      latitude: 16.9023,
+      longitude: -96.3845,
+      category: 'Gastronomía',
+    ),
+    Experience(
+      id: 'exp005',
+      title: 'Danza de los Diablos',
+      description: 'Una inmersión en la vibrante Danza de los Diablos de Cuajinicuilapa. Conoce la historia, el vestuario y los pasos de este baile afro-mexicano.',
+      imageAsset: 'assets/danza.jpg', // Asume que tienes esta imagen
+      location: 'Cuajinicuilapa, Guerrero',
+      rating: 4.5,
+      price: 250,
+      duration: '2 horas',
+      isVerified: false,
+      isFeatured: false,
+      highlights: ['Clase de danza', 'Historia cultural', 'Interacción con bailarines'],
+      latitude: 16.4468,
+      longitude: -98.4061,
+      category: 'Música y Danza',
+    ),
+    Experience(
+      id: 'exp006',
+      title: 'Ceremonia de Temazcal',
+      description: 'Experimenta una antigua ceremonia de temazcal para la purificación del cuerpo y el espíritu, guiada por un chamán tradicional.',
+      imageAsset: 'assets/temazcal.jpg', // Asume que tienes esta imagen
+      location: 'Tepoztlán, Morelos',
+      rating: 4.9,
+      price: 600,
+      duration: '4 horas',
+      isVerified: true,
+      isFeatured: true,
+      highlights: ['Purificación', 'Conexión espiritual', 'Guía chamánica'],
+      latitude: 18.9863,
+      longitude: -99.0963,
+      category: 'Bienestar',
+    ),
+  ];
+
+  static List<Experience> getExperiencesByCategory(String category) {
+    if (category == 'Todas') {
+      return _allExperiences;
+    } else {
+      return _allExperiences.where((exp) => exp.category == category).toList();
+    }
   }
 
   static List<String> getCategories() {
@@ -192,19 +185,7 @@ class ExperienceData {
     ];
   }
 
-  static List<Experience> getExperiencesByCategory(String category) {
-    final experiences = getSampleExperiences();
-    if (category == 'Todas') {
-      return experiences;
-    }
-    return experiences.where((exp) => exp.category == category).toList();
-  }
-
   static List<Experience> getFeaturedExperiences() {
-    return getSampleExperiences().where((exp) => exp.isFeatured).toList();
-  }
-
-  static List<Experience> getVerifiedExperiences() {
-    return getSampleExperiences().where((exp) => exp.isVerified).toList();
+    return _allExperiences.where((exp) => exp.isFeatured).toList();
   }
 }

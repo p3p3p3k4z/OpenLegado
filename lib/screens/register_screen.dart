@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // Importa Firebase Authentication
 import 'interests_screen.dart';
 import 'login_screen.dart';
 
+/// Pantalla de registro de nuevos usuarios.
+/// Permite a los usuarios crear una nueva cuenta utilizando Firebase Authentication.
 class RegisterScreen extends StatefulWidget {
+  const RegisterScreen({super.key});
+
   @override
   _RegisterScreenState createState() => _RegisterScreenState();
 }
@@ -15,6 +20,80 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _confirmPasswordController = TextEditingController();
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+  bool _isLoading = false; // Nuevo estado para controlar el indicador de carga
+
+  /// Maneja el proceso de registro de usuario con Firebase Authentication.
+  ///
+  /// Punto de complejidad:
+  /// Esta función crea una nueva cuenta de usuario en Firebase.
+  /// Es importante manejar errores como correo ya en uso, contraseña débil,
+  /// o problemas de red.
+  Future<void> _signUp() async {
+    if (_formKey.currentState!.validate()) {
+      setState(() {
+        _isLoading = true; // Muestra el indicador de carga
+      });
+      try {
+        // Intenta crear un nuevo usuario con el correo y la contraseña.
+        UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+        );
+
+        // Si el registro es exitoso, puedes acceder al usuario recién creado:
+        User? user = userCredential.user;
+        if (user != null) {
+          // TODO: Aquí es donde podrías guardar el nombre de usuario (o nombre completo)
+          // en Firestore, asociado al UID del usuario.
+          // Por ejemplo:
+          // await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          //   'username': _nameController.text.trim(),
+          //   'email': user.email,
+          //   'createdAt': FieldValue.serverTimestamp(),
+          // });
+
+          _showSnackBar('¡Registro exitoso!', Colors.green);
+          // Navega a la pantalla de intereses después de un registro exitoso.
+          // `pushReplacement` evita que el usuario regrese a la pantalla de registro.
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const InterestsScreen()),
+          );
+        }
+      } on FirebaseAuthException catch (e) {
+        // Captura excepciones específicas de Firebase Authentication.
+        String message;
+        if (e.code == 'weak-password') {
+          message = 'La contraseña es demasiado débil.';
+        } else if (e.code == 'email-already-in-use') {
+          message = 'Ya existe una cuenta con ese correo electrónico.';
+        } else if (e.code == 'invalid-email') {
+          message = 'El formato del correo electrónico es inválido.';
+        } else {
+          message = 'Error al registrarse: ${e.message}';
+        }
+        _showSnackBar(message, Colors.red); // Muestra un mensaje de error.
+      } catch (e) {
+        // Captura cualquier otra excepción inesperada.
+        _showSnackBar('Ocurrió un error inesperado: $e', Colors.red);
+      } finally {
+        setState(() {
+          _isLoading = false; // Oculta el indicador de carga
+        });
+      }
+    }
+  }
+
+  /// Muestra un SnackBar con un mensaje y un color de fondo.
+  void _showSnackBar(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,13 +102,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Color(0xFF8B4513)),
+          icon: const Icon(Icons.arrow_back, color: Color(0xFF8B4513)),
           onPressed: () => Navigator.pop(context),
         ),
       ),
       body: Container(
         width: double.infinity,
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             colors: [
               Color(0xFFFFF8DC),
@@ -41,18 +120,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
         child: SafeArea(
           child: SingleChildScrollView(
-            padding: EdgeInsets.all(32),
+            padding: const EdgeInsets.all(32),
             child: Form(
               key: _formKey,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Logo pequeño
                   Center(
                     child: Container(
                       width: 80,
                       height: 80,
-                      decoration: BoxDecoration(
+                      decoration: const BoxDecoration(
                         color: Color(0xFF8B4513),
                         shape: BoxShape.circle,
                       ),
@@ -63,7 +141,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             width: 60,
                             height: 60,
                             fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) => Icon(
+                            errorBuilder: (context, error, stackTrace) => const Icon(
                               Icons.temple_hindu,
                               size: 40,
                               color: Colors.white,
@@ -73,10 +151,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     ),
                   ),
-                  
-                  SizedBox(height: 16),
-                  
-                  Center(
+
+                  const SizedBox(height: 16),
+
+                  const Center(
                     child: Text(
                       'LEGADO',
                       style: TextStyle(
@@ -87,10 +165,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     ),
                   ),
-                  
-                  SizedBox(height: 8),
-                  
-                  Center(
+
+                  const SizedBox(height: 8),
+
+                  const Center(
                     child: Text(
                       'Descubre la cultura que\nno está en los mapas',
                       textAlign: TextAlign.center,
@@ -100,12 +178,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     ),
                   ),
-                  
-                  SizedBox(height: 32),
-                  
-                  // Nombre de usuario
+
+                  const SizedBox(height: 32),
+
                   _buildLabel('Nombre de usuario'),
-                  SizedBox(height: 8),
+                  const SizedBox(height: 8),
                   _buildTextField(
                     controller: _nameController,
                     hintText: 'Ingresa tu nombre completo',
@@ -117,12 +194,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       return null;
                     },
                   ),
-                  
-                  SizedBox(height: 16),
-                  
-                  // Correo electrónico
+
+                  const SizedBox(height: 16),
+
                   _buildLabel('Correo electrónico'),
-                  SizedBox(height: 8),
+                  const SizedBox(height: 8),
                   _buildTextField(
                     controller: _emailController,
                     hintText: 'Ingresa tu correo',
@@ -138,12 +214,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       return null;
                     },
                   ),
-                  
-                  SizedBox(height: 16),
-                  
-                  // Contraseña
+
+                  const SizedBox(height: 16),
+
                   _buildLabel('Contraseña'),
-                  SizedBox(height: 8),
+                  const SizedBox(height: 8),
                   _buildPasswordField(
                     controller: _passwordController,
                     hintText: 'Crea una contraseña',
@@ -159,12 +234,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       return null;
                     },
                   ),
-                  
-                  SizedBox(height: 16),
-                  
-                  // Confirmar contraseña
+
+                  const SizedBox(height: 16),
+
                   _buildLabel('Confirma contraseña'),
-                  SizedBox(height: 8),
+                  const SizedBox(height: 8),
                   _buildPasswordField(
                     controller: _confirmPasswordController,
                     hintText: 'Confirma tu contraseña',
@@ -180,32 +254,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       return null;
                     },
                   ),
-                  
-                  SizedBox(height: 32),
-                  
-                  // Botón de registro
+
+                  const SizedBox(height: 32),
+
+                  // Botón de registro.
                   SizedBox(
                     width: double.infinity,
                     height: 56,
                     child: ElevatedButton(
-                      onPressed: () {
-                        if (_formKey.currentState!.validate()) {
-                          // Navegar a la pantalla de intereses
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => InterestsScreen()),
-                          );
-                        }
-                      },
+                      onPressed: _isLoading ? null : _signUp, // Deshabilita el botón si está cargando
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Color(0xFF8B4513),
+                        backgroundColor: const Color(0xFF8B4513),
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
                         ),
                         elevation: 4,
                       ),
-                      child: Text(
+                      child: _isLoading // Muestra un CircularProgressIndicator si está cargando
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : const Text(
                         'Registrarme',
                         style: TextStyle(
                           fontSize: 18,
@@ -214,14 +282,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     ),
                   ),
-                  
-                  SizedBox(height: 24),
-                  
-                  // Enlaces adicionales
+
+                  const SizedBox(height: 24),
+
                   Center(
                     child: Column(
                       children: [
-                        Text(
+                        const Text(
                           '¿Ya tienes una cuenta? ',
                           style: TextStyle(color: Color(0xFF5D4037)),
                         ),
@@ -229,10 +296,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           onPressed: () {
                             Navigator.pushReplacement(
                               context,
-                              MaterialPageRoute(builder: (context) => LoginScreen()),
+                              MaterialPageRoute(builder: (context) => const LoginScreen()),
                             );
                           },
-                          child: Text(
+                          child: const Text(
                             'Inicia Sesión',
                             style: TextStyle(
                               color: Color(0xFFE67E22),
@@ -255,7 +322,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _buildLabel(String text) {
     return Text(
       text,
-      style: TextStyle(
+      style: const TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.w600,
         color: Color(0xFF8B4513),
@@ -275,7 +342,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       keyboardType: keyboardType,
       decoration: InputDecoration(
         hintText: hintText,
-        suffixIcon: Icon(icon, color: Color(0xFF8B4513)),
+        suffixIcon: Icon(icon, color: const Color(0xFF8B4513)),
         filled: true,
         fillColor: Colors.white,
         border: OutlineInputBorder(
@@ -284,7 +351,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Color(0xFFE67E22), width: 2),
+          borderSide: const BorderSide(color: Color(0xFFE67E22), width: 2),
         ),
       ),
       validator: validator,
@@ -306,7 +373,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         suffixIcon: IconButton(
           icon: Icon(
             obscureText ? Icons.visibility_off : Icons.visibility,
-            color: Color(0xFF8B4513),
+            color: const Color(0xFF8B4513),
           ),
           onPressed: onToggleVisibility,
         ),
@@ -318,7 +385,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Color(0xFFE67E22), width: 2),
+          borderSide: const BorderSide(color: Color(0xFFE67E22), width: 2),
         ),
       ),
       validator: validator,
