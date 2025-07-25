@@ -9,7 +9,7 @@ import 'firebase_options.dart'; // Este archivo se genera con `flutterfire confi
 void main() async {
   // Asegura que los widgets de Flutter estén inicializados antes de usar Firebase
   WidgetsFlutterBinding.ensureInitialized();
-
+  
   // Inicializa Firebase con las opciones generadas para la plataforma actual
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
