@@ -23,6 +23,8 @@ dependencies:
   cloud_firestore: ^5.0.0
   # Firebase Auth para la autenticación de usuarios
   firebase_auth: ^5.0.0
+
+  intl: ^0.18.1
   
 dev_dependencies:
   flutter_test:
