@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
-import '../models/experience.dart'; // Asegúrate de importar el modelo Experience
+import 'package:intl/intl.dart';
+import '../models/experience.dart';
 
 /// Pantalla para que los usuarios puedan enviar una nueva experiencia.
-/// Ahora también permite la edición de una experiencia existente si se pasa un objeto
-/// Experience en el constructor.
+/// Ahora permite la edición de una experiencia existente y la gestión de
+/// fechas y cupos para el sistema de tickets.
 class SubmitExperienceScreen extends StatefulWidget {
   final Experience? experienceToEdit;
 
@@ -27,7 +28,9 @@ class _SubmitExperienceScreenState extends State<SubmitExperienceScreen> {
   final _highlightsController = TextEditingController();
   final _latitudeController = TextEditingController();
   final _longitudeController = TextEditingController();
-  final _maxCapacityController = TextEditingController();
+
+  // NUEVO: Lista para manejar el horario de tickets.
+  final List<TicketSchedule> _schedule = [];
 
   String? _selectedCategory;
   final List<String> _categories = [
@@ -54,10 +57,10 @@ class _SubmitExperienceScreenState extends State<SubmitExperienceScreen> {
       _priceController.text = experience.price.toString();
       _durationController.text = experience.duration;
       _highlightsController.text = experience.highlights.join(', ');
-      _maxCapacityController.text = experience.maxCapacity.toString();
       _latitudeController.text = experience.latitude.toString();
       _longitudeController.text = experience.longitude.toString();
       _selectedCategory = experience.category;
+      _schedule.addAll(experience.schedule);
     }
   }
 
@@ -72,6 +75,60 @@ class _SubmitExperienceScreenState extends State<SubmitExperienceScreen> {
     );
   }
 
+  /// Muestra un selector de fechas y permite agregar una nueva fecha con su cupo.
+  Future<void> _addScheduleEntry() async {
+    final DateTime? pickedDate = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+
+    if (pickedDate != null) {
+      int? capacity = await _showCapacityDialog(context);
+      if (capacity != null && capacity > 0) {
+        setState(() {
+          _schedule.add(TicketSchedule(date: pickedDate, capacity: capacity));
+          // Ordenar por fecha para una mejor visualización.
+          _schedule.sort((a, b) => a.date.compareTo(b.date));
+        });
+      }
+    }
+  }
+
+  /// Muestra un diálogo para que el usuario ingrese el cupo.
+  Future<int?> _showCapacityDialog(BuildContext context) async {
+    final _capacityController = TextEditingController();
+    return showDialog<int>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Ingresar Cupo'),
+          content: TextField(
+            controller: _capacityController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(hintText: 'Ej. 10'),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancelar'),
+              onPressed: () {
+                Navigator.pop(context);
+              },
+            ),
+            ElevatedButton(
+              child: const Text('Guardar'),
+              onPressed: () {
+                final capacity = int.tryParse(_capacityController.text);
+                Navigator.pop(context, capacity);
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   /// Maneja el proceso de envío o actualización de la experiencia en Firestore.
   Future<void> _submitExperience() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -81,35 +138,38 @@ class _SubmitExperienceScreenState extends State<SubmitExperienceScreen> {
     }
 
     if (_formKey.currentState!.validate()) {
+      if (_schedule.isEmpty) {
+        _showSnackBar('Debe agregar al menos una fecha con cupo.', Colors.red);
+        return;
+      }
+
       setState(() {
         _isLoading = true;
       });
 
-      // Dividir los highlights por comas y limpiar espacios.
       final List<String> highlightsList = _highlightsController.text
           .split(',')
           .map((e) => e.trim())
           .where((e) => e.isNotEmpty)
           .toList();
 
-      // Preparar los datos para Firestore.
       final experienceData = {
         'title': _titleController.text,
         'description': _descriptionController.text,
-        'imageAsset': _imageController.text.isEmpty ? 'https://placehold.co/600x400/E67E22/ffffff?text=Experiencia' : _imageController.text,
+        'imageAsset': _imageController.text.isEmpty
+            ? 'https://placehold.co/600x400/E67E22/ffffff?text=Experiencia'
+            : _imageController.text,
         'location': _locationController.text,
+        'latitude': double.tryParse(_latitudeController.text) ?? 0.0,
+        'longitude': double.tryParse(_longitudeController.text) ?? 0.0,
         'category': _selectedCategory,
         'price': double.tryParse(_priceController.text) ?? 0.0,
         'duration': _durationController.text,
         'highlights': highlightsList,
-        'maxCapacity': int.tryParse(_maxCapacityController.text) ?? 10,
-        'latitude': double.tryParse(_latitudeController.text) ?? 0.0,
-        'longitude': double.tryParse(_longitudeController.text) ?? 0.0,
-        // Mantener valores de la experiencia si se está editando, si no, usar valores por defecto.
+        'schedule': _schedule.map((s) => s.toMap()).toList(), // NUEVO: Guardar el horario.
         'rating': widget.experienceToEdit?.rating ?? 0.0,
         'reviews': widget.experienceToEdit?.reviews ?? 0,
         'artisanName': widget.experienceToEdit?.artisanName ?? user.displayName ?? 'Anónimo',
-        'bookedTickets': widget.experienceToEdit?.bookedTickets ?? 0,
         'status': widget.experienceToEdit?.status ?? 'pending',
         'isVerified': widget.experienceToEdit?.isVerified ?? false,
         'isFeatured': widget.experienceToEdit?.isFeatured ?? false,
@@ -117,23 +177,19 @@ class _SubmitExperienceScreenState extends State<SubmitExperienceScreen> {
 
       try {
         if (widget.experienceToEdit != null) {
-          // Si se está editando, actualiza el documento existente.
           await FirebaseFirestore.instance
               .collection('experiences')
               .doc(widget.experienceToEdit!.id)
               .update(experienceData);
           _showSnackBar('Experiencia actualizada con éxito.', Colors.green);
         } else {
-          // Si es una nueva experiencia, crea un nuevo documento.
-          await FirebaseFirestore.instance
-              .collection('experiences')
-              .add({
+          await FirebaseFirestore.instance.collection('experiences').add({
             ...experienceData,
             'submittedAt': FieldValue.serverTimestamp(),
             'submittedBy': user.uid,
           });
           _showSnackBar('Experiencia enviada para revisión con éxito.', Colors.green);
-          // Limpiar los campos después del envío de una nueva experiencia.
+          // Limpiar campos.
           _titleController.clear();
           _descriptionController.clear();
           _imageController.clear();
@@ -143,12 +199,11 @@ class _SubmitExperienceScreenState extends State<SubmitExperienceScreen> {
           _highlightsController.clear();
           _latitudeController.clear();
           _longitudeController.clear();
-          _maxCapacityController.clear();
           setState(() {
             _selectedCategory = null;
+            _schedule.clear();
           });
         }
-        // Navegar hacia atrás después de un envío o actualización exitosa.
         if (mounted) {
           Navigator.of(context).pop();
         }
@@ -243,14 +298,6 @@ class _SubmitExperienceScreenState extends State<SubmitExperienceScreen> {
               ),
               const SizedBox(height: 16),
               _buildTextFormField(
-                controller: _maxCapacityController,
-                labelText: 'Cupo máximo',
-                hintText: 'Ej. 10',
-                keyboardType: TextInputType.number,
-                validator: (value) => value == null || int.tryParse(value) == null ? 'Por favor, ingresa un cupo válido.' : null,
-              ),
-              const SizedBox(height: 16),
-              _buildTextFormField(
                 controller: _latitudeController,
                 labelText: 'Latitud',
                 hintText: 'Ej. 17.06209',
@@ -297,6 +344,57 @@ class _SubmitExperienceScreenState extends State<SubmitExperienceScreen> {
                   });
                 },
                 validator: (value) => value == null ? 'Por favor, selecciona una categoría.' : null,
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Fechas y Cupos',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF5D4037),
+                ),
+              ),
+              const SizedBox(height: 8),
+              // Aquí se muestra la lista de fechas y cupos.
+              Column(
+                children: _schedule.map((scheduleItem) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4.0),
+                    child: Card(
+                      elevation: 2,
+                      child: ListTile(
+                        title: Text(DateFormat('dd/MM/yyyy').format(scheduleItem.date)),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('${scheduleItem.capacity} tickets'),
+                            IconButton(
+                              icon: const Icon(Icons.close, color: Colors.red),
+                              onPressed: () {
+                                setState(() {
+                                  _schedule.remove(scheduleItem);
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 8),
+              ElevatedButton.icon(
+                onPressed: _addScheduleEntry,
+                icon: const Icon(Icons.add_circle_outline, color: Colors.white),
+                label: const Text(
+                  'Añadir fecha y cupo',
+                  style: TextStyle(color: Colors.white),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFE67E22),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
               ),
               const SizedBox(height: 32),
               ElevatedButton(
@@ -365,7 +463,6 @@ class _SubmitExperienceScreenState extends State<SubmitExperienceScreen> {
     _highlightsController.dispose();
     _latitudeController.dispose();
     _longitudeController.dispose();
-    _maxCapacityController.dispose();
     super.dispose();
   }
 }

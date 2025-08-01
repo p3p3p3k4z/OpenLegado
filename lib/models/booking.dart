@@ -1,13 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// Clase de modelo para una reserva (`Booking`).
+/// Clase de modelo simple para una reserva (`Booking`).
 class Booking {
   final String id;
   final String userId;
   final String experienceId;
   final String experienceTitle;
   final String experienceImage;
-  final DateTime bookingDate;
+  final DateTime bookingDate; // La fecha específica de la reserva.
   final int numberOfPeople;
   final String status;
   final DateTime createdAt;
