@@ -2,10 +2,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../models/experience.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 
+// Importa los modelos de datos modularizados que creamos
+import '../models/experience.dart';
+import '../models/user.dart';
+import '../models/booking.dart';
+
+/// Pantalla que muestra los detalles completos de una experiencia.
 class ExperienceDetailScreen extends StatefulWidget {
   final Experience experience;
 
@@ -18,27 +23,29 @@ class ExperienceDetailScreen extends StatefulWidget {
 }
 
 class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
+  // Estado para gestionar si la experiencia está guardada por el usuario
   bool _isFavorite = false;
   bool _isLoadingFavorite = false;
-  bool _isBooking = false;
 
+  // Estado y lógica para la reserva
+  int _selectedTickets = 1;
+
+  // Mapa
   final Completer<GoogleMapController> _mapController = Completer();
   late CameraPosition _cameraPosition;
   late Marker _experienceMarker;
-
-  // Controladores para la reserva
-  DateTime? _selectedDate;
-  final TextEditingController _peopleController =
-      TextEditingController(text: '1');
+  bool _isMapLoading = true;
 
   @override
   void initState() {
     super.initState();
     _checkIfFavorite();
+    _initMap();
+  }
 
-    // Inicializar el mapa con la ubicación de la experiencia
-    final latLng =
-        LatLng(widget.experience.latitude, widget.experience.longitude);
+  /// Inicializa la posición del mapa y el marcador con los datos de la experiencia.
+  void _initMap() {
+    final latLng = LatLng(widget.experience.latitude, widget.experience.longitude);
 
     _cameraPosition = CameraPosition(
       target: latLng,
@@ -48,41 +55,26 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
     _experienceMarker = Marker(
       markerId: MarkerId(widget.experience.id),
       position: latLng,
-      infoWindow: InfoWindow(title: widget.experience.title),
+      infoWindow: InfoWindow(
+        title: widget.experience.title,
+        snippet: widget.experience.location,
+      ),
     );
+
+    setState(() {
+      _isMapLoading = false;
+    });
   }
 
-  /// Obtener ubicación actual y centrar el mapa
-  Future<void> _goToCurrentLocation() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      _showSnackBar('Activa el GPS para ver tu ubicación.', Colors.orange);
-      return;
-    }
-
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        _showSnackBar('Permiso de ubicación denegado.', Colors.red);
-        return;
-      }
-    }
-
-    Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high);
-
-    final GoogleMapController controller = await _mapController.future;
-    controller.animateCamera(CameraUpdate.newLatLngZoom(
-        LatLng(position.latitude, position.longitude), 15));
-  }
-
-  /// Verifica si la experiencia está en favoritos
+  /// Verifica si la experiencia actual está en la lista de guardados del usuario.
   Future<void> _checkIfFavorite() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    setState(() => _isLoadingFavorite = true);
+    setState(() {
+      _isLoadingFavorite = true;
+    });
+
     try {
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
@@ -90,233 +82,168 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
           .get();
 
       if (userDoc.exists) {
-        final data = userDoc.data();
-        final savedExperiences =
-            List<String>.from(data?['savedExperiences'] ?? []);
+        final userData = AppUser.fromFirestore(userDoc);
         setState(() {
-          _isFavorite = savedExperiences.contains(widget.experience.id);
+          _isFavorite = userData.savedExperiences.contains(widget.experience.id);
         });
       }
     } catch (e) {
-      print('Error checking favorite: $e');
+      print('Error al verificar favoritos: $e');
     } finally {
-      setState(() => _isLoadingFavorite = false);
+      setState(() {
+        _isLoadingFavorite = false;
+      });
     }
   }
 
-  /// Alternar favoritos
+  /// Maneja la adición o eliminación de la experiencia de la lista de favoritos.
   Future<void> _toggleFavorite() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      _showSnackBar(
-          'Debes iniciar sesión para guardar experiencias.', Colors.orange);
+      _showSnackBar('Debe iniciar sesión para guardar experiencias.', Colors.red);
       return;
     }
 
-    setState(() => _isLoadingFavorite = true);
+    setState(() {
+      _isLoadingFavorite = true;
+    });
+
+    final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
     try {
-      final userDocRef =
-          FirebaseFirestore.instance.collection('users').doc(user.uid);
       if (_isFavorite) {
+        // Elimina la experiencia de la lista
         await userDocRef.update({
-          'savedExperiences': FieldValue.arrayRemove([widget.experience.id])
+          'savedExperiences': FieldValue.arrayRemove([widget.experience.id]),
         });
-        _showSnackBar('Eliminado de favoritos.', Colors.grey);
+        _showSnackBar('Experiencia eliminada de favoritos.', Colors.orange);
       } else {
+        // Añade la experiencia a la lista
         await userDocRef.update({
-          'savedExperiences': FieldValue.arrayUnion([widget.experience.id])
+          'savedExperiences': FieldValue.arrayUnion([widget.experience.id]),
         });
-        _showSnackBar('Añadido a favoritos.', Colors.green);
+        _showSnackBar('Experiencia guardada en favoritos.', Colors.green);
       }
-      setState(() => _isFavorite = !_isFavorite);
+      // Actualiza el estado de la UI
+      setState(() {
+        _isFavorite = !_isFavorite;
+      });
     } catch (e) {
       _showSnackBar('Error al actualizar favoritos: $e', Colors.red);
     } finally {
-      setState(() => _isLoadingFavorite = false);
+      setState(() {
+        _isLoadingFavorite = false;
+      });
     }
   }
 
-  /// Mostrar snackbar
-  void _showSnackBar(String message, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: color),
-    );
-  }
-
-  /// Formulario de reserva
-  void _showBookingForm() {
+  /// Realiza la reserva de boletos usando una transacción de Firestore.
+  Future<void> _bookExperience() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      _showSnackBar('Debes iniciar sesión para reservar.', Colors.orange);
+      _showSnackBar('Debe iniciar sesión para reservar.', Colors.red);
       return;
     }
 
-    _selectedDate = null;
-    _peopleController.text = '1';
+    if (_selectedTickets <= 0) {
+      _showSnackBar('Debe seleccionar al menos un boleto.', Colors.red);
+      return;
+    }
 
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) {
-          return AlertDialog(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            title: Text(
-              'Reservar ${widget.experience.title}',
-              style: const TextStyle(
-                color: Color(0xFF8B4513),
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  title: Text(
-                    _selectedDate == null
-                        ? 'Seleccionar fecha'
-                        : 'Fecha: ${MaterialLocalizations.of(context).formatShortDate(_selectedDate!)}',
-                  ),
-                  trailing:
-                      const Icon(Icons.calendar_today, color: Color(0xFFE67E22)),
-                  onTap: () async {
-                    final DateTime? picked = await showDatePicker(
-                      context: context,
-                      initialDate: DateTime.now(),
-                      firstDate: DateTime.now(),
-                      lastDate: DateTime(DateTime.now().year + 2),
-                    );
-                    if (picked != null) {
-                      setModalState(() {
-                        _selectedDate = picked;
-                      });
-                    }
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _peopleController,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    labelText: 'Número de personas',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancelar'),
-              ),
-              ElevatedButton(
-                onPressed: _isBooking
-                    ? null
-                    : () => _createBooking(context), // Crear reserva
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFE67E22)),
-                child: _isBooking
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text('Confirmar Reserva'),
-              ),
-            ],
-          );
-        },
+    final experienceRef = FirebaseFirestore.instance
+        .collection('experiences')
+        .doc(widget.experience.id);
+    final bookingsRef = FirebaseFirestore.instance
+        .collection('bookings');
+
+    // Usamos una transacción para garantizar la atomicidad de la operación
+    await FirebaseFirestore.instance.runTransaction((transaction) async {
+      final experienceSnapshot = await transaction.get(experienceRef);
+      final currentBookedTickets =
+          (experienceSnapshot.data()?['bookedTickets'] as int?) ?? 0;
+      final maxCapacity =
+          (experienceSnapshot.data()?['maxCapacity'] as int?) ?? 0;
+
+      final availableTickets = maxCapacity - currentBookedTickets;
+
+      if (_selectedTickets > availableTickets) {
+        throw 'No hay suficientes boletos disponibles. Quedan $availableTickets.';
+      }
+
+      // Actualiza el número de boletos reservados
+      final newBookedTickets = currentBookedTickets + _selectedTickets;
+      transaction.update(experienceRef, {'bookedTickets': newBookedTickets});
+
+      // Crea un nuevo documento de reserva
+      final newBooking = Booking(
+        id: '', // Firestore generará el ID automáticamente
+        userId: user.uid,
+        experienceId: widget.experience.id,
+        experienceTitle: widget.experience.title,
+        experienceImage: widget.experience.imageAsset, // Corregido: 'experienceImage'
+        numberOfPeople: _selectedTickets, // Corregido: 'numberOfPeople'
+        bookingDate: DateTime.now(),
+        status: 'pending', // Añadido: el parámetro 'status' requerido
+        createdAt: DateTime.now(), // Corregido: usar DateTime en lugar de Timestamp
+      );
+      // Ahora usamos el método toMap() para guardar los datos en Firestore.
+      transaction.set(bookingsRef.doc(), newBooking.toMap());
+    }).then((_) {
+      _showSnackBar('Reserva exitosa para $_selectedTickets boletos.', Colors.green);
+      setState(() {
+        // Reinicia la selección de tickets
+        _selectedTickets = 1;
+      });
+    }).catchError((error) {
+      _showSnackBar('Error en la reserva: $error', Colors.red);
+    });
+  }
+
+  /// Muestra una Snackbar para notificaciones al usuario.
+  void _showSnackBar(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        duration: const Duration(seconds: 3),
       ),
     );
   }
 
-  /// Crear reserva en Firestore
-  Future<void> _createBooking(BuildContext dialogContext) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    if (_selectedDate == null) {
-      _showSnackBar('Selecciona una fecha.', Colors.red);
-      return;
-    }
-
-    final numberOfPeople = int.tryParse(_peopleController.text.trim());
-    if (numberOfPeople == null || numberOfPeople <= 0) {
-      _showSnackBar('Número de personas no válido.', Colors.red);
-      return;
-    }
-
-    setState(() => _isBooking = true);
-    try {
-      await FirebaseFirestore.instance.collection('bookings').add({
-        'userId': user.uid,
-        'experienceId': widget.experience.id,
-        'experienceTitle': widget.experience.title,
-        'experienceImage': widget.experience.imageAsset,
-        'bookingDate': Timestamp.fromDate(_selectedDate!),
-        'numberOfPeople': numberOfPeople,
-        'status': 'pending',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      Navigator.pop(dialogContext);
-      _showSnackBar('Reserva creada con éxito.', Colors.green);
-    } catch (e) {
-      _showSnackBar('Error al crear reserva: $e', Colors.red);
-    } finally {
-      setState(() => _isBooking = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    // Calcula la capacidad disponible en tiempo real
+    final availableTickets = widget.experience.maxCapacity - widget.experience.bookedTickets;
+    final isFullyBooked = availableTickets <= 0;
+
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          SliverAppBar(
-            expandedHeight: 300,
-            pinned: true,
-            backgroundColor: const Color(0xFF8B4513),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => Navigator.pop(context),
-            ),
-            actions: [
-              _isLoadingFavorite
-                  ? const Padding(
-                      padding: EdgeInsets.all(16.0),
-                      child: CircularProgressIndicator(color: Colors.white),
-                    )
-                  : IconButton(
-                      icon: Icon(
-                        _isFavorite ? Icons.favorite : Icons.favorite_border,
-                        color: _isFavorite ? Colors.red : Colors.white,
-                      ),
-                      onPressed: _toggleFavorite,
-                    ),
-            ],
-            flexibleSpace: FlexibleSpaceBar(
-              background: Image.asset(
-                widget.experience.imageAsset,
-                fit: BoxFit.cover,
-              ),
-            ),
-          ),
+          _buildSliverAppBar(),
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildHeader(),
-                  const SizedBox(height: 24),
-                  _buildDescription(),
-                  const SizedBox(height: 24),
+                  _buildTitleAndRating(),
+                  const SizedBox(height: 16),
                   _buildHighlights(),
                   const SizedBox(height: 24),
-                  _buildLocation(),
+                  const Text('Descripción', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Text(widget.experience.description),
                   const SizedBox(height: 24),
                   _buildPriceAndDuration(),
-                  const SizedBox(height: 32),
-                  _buildBookingButton(),
                   const SizedBox(height: 24),
+                  const Text('Ubicación', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  Text(widget.experience.location),
+                  const SizedBox(height: 12),
+                  _buildMapSection(),
+                  const SizedBox(height: 24),
+                  const Text('Reserva tu Experiencia', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 16),
+                  _buildBookingControls(availableTickets, isFullyBooked),
                 ],
               ),
             ),
@@ -326,129 +253,246 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
     );
   }
 
-  Widget _buildHeader() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          widget.experience.title,
-          style: const TextStyle(
-              fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF5D4037)),
+  // --- Widgets de la UI ---
+
+  Widget _buildSliverAppBar() {
+    return SliverAppBar(
+      expandedHeight: 250,
+      pinned: true,
+      backgroundColor: const Color(0xFF8B4513),
+      flexibleSpace: FlexibleSpaceBar(
+        background: Image.asset(
+          widget.experience.imageAsset,
+          fit: BoxFit.cover,
         ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            const Icon(Icons.location_on, size: 20, color: Color(0xFF8D6E63)),
-            const SizedBox(width: 4),
-            Text(widget.experience.location,
-                style:
-                    const TextStyle(fontSize: 16, color: Color(0xFF8D6E63))),
-          ],
-        ),
+      ),
+      actions: [
+        if (_isLoadingFavorite)
+          const Padding(
+            padding: EdgeInsets.all(8.0),
+            child: CircularProgressIndicator(color: Colors.white),
+          )
+        else
+          IconButton(
+            icon: Icon(
+              _isFavorite ? Icons.bookmark : Icons.bookmark_border,
+              color: Colors.white,
+              size: 30,
+            ),
+            onPressed: _toggleFavorite,
+          ),
       ],
     );
   }
 
-  Widget _buildDescription() => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Descripción',
-              style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF8B4513))),
-          const SizedBox(height: 12),
-          Text(widget.experience.description,
-              style: const TextStyle(fontSize: 16, height: 1.5)),
-        ],
-      );
-
-  Widget _buildHighlights() {
-    if (widget.experience.highlights.isEmpty) return const SizedBox.shrink();
-    return Column(
+  Widget _buildTitleAndRating() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Lo que incluye',
-            style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF8B4513))),
-        const SizedBox(height: 12),
-        ...widget.experience.highlights.map((h) => Text('- $h')),
-      ],
-    );
-  }
-
-  Widget _buildLocation() {
-    final lat = widget.experience.latitude.toStringAsFixed(4);
-    final lng = widget.experience.longitude.toStringAsFixed(4);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Ubicación',
-            style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF8B4513))),
-        const SizedBox(height: 12),
-        SizedBox(
-          height: 200,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(15),
-            child: GoogleMap(
-              initialCameraPosition: _cameraPosition,
-              markers: {_experienceMarker},
-              onMapCreated: (controller) {
-                if (!_mapController.isCompleted) {
-                  _mapController.complete(controller);
-                }
-              },
-              myLocationEnabled: true,
-              zoomControlsEnabled: true,
+        Expanded(
+          child: Text(
+            widget.experience.title,
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF5D4037),
             ),
           ),
         ),
-        TextButton.icon(
-          onPressed: _goToCurrentLocation,
-          icon: const Icon(Icons.my_location, color: Color(0xFFE67E22)),
-          label: const Text('Ir a mi ubicación',
-              style: TextStyle(color: Color(0xFFE67E22))),
+        const SizedBox(width: 16),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE67E22),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.star, color: Colors.white, size: 16),
+              const SizedBox(width: 4),
+              Text(
+                widget.experience.rating.toStringAsFixed(1),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
         ),
-        Text('Lat: $lat, Lng: $lng',
-            style: const TextStyle(color: Color(0xFF8D6E63))),
       ],
     );
   }
 
-  Widget _buildPriceAndDuration() => Row(
+  Widget _buildHighlights() {
+    return Wrap(
+      spacing: 8.0,
+      runSpacing: 8.0,
+      children: widget.experience.highlights.map((highlight) {
+        return Chip(
+          label: Text(highlight),
+          backgroundColor: Colors.brown[50],
+          labelStyle: const TextStyle(color: Color(0xFF5D4037)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildPriceAndDuration() {
+    return Row(
+      children: [
+        _buildInfoCard(
+          icon: Icons.access_time,
+          label: 'Duración',
+          value: widget.experience.duration,
+          iconColor: const Color(0xFFE67E22),
+        ),
+        const SizedBox(width: 16),
+        _buildInfoCard(
+          icon: Icons.attach_money,
+          label: 'Precio',
+          value: '\$${widget.experience.price} MXN',
+          iconColor: Colors.green,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInfoCard({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color iconColor,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: iconColor),
+            const SizedBox(height: 8),
+            Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMapSection() {
+    return _isMapLoading
+        ? const Center(child: CircularProgressIndicator())
+        : Container(
+      height: 250,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: GoogleMap(
+          initialCameraPosition: _cameraPosition,
+          markers: {_experienceMarker},
+          onMapCreated: (GoogleMapController controller) {
+            if (!_mapController.isCompleted) {
+              _mapController.complete(controller);
+            }
+          },
+          myLocationEnabled: true,
+          zoomControlsEnabled: true,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBookingControls(int availableTickets, bool isFullyBooked) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
         children: [
           Expanded(
-              child: Column(children: [
-            const Icon(Icons.access_time, color: Color(0xFFE67E22)),
-            Text('Duración: ${widget.experience.duration}'),
-          ])),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Boletos', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text(
+                  isFullyBooked ? 'Sin boletos disponibles' : 'Disponibles: $availableTickets',
+                  style: TextStyle(
+                    color: isFullyBooked ? Colors.red : Colors.green[800],
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.remove_circle_outline, color: Color(0xFFE67E22)),
+                      onPressed: _selectedTickets > 1 ? () => setState(() => _selectedTickets--) : null,
+                    ),
+                    Text(
+                      _selectedTickets.toString(),
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.add_circle_outline, color: Color(0xFFE67E22)),
+                      onPressed: _selectedTickets < availableTickets
+                          ? () => setState(() => _selectedTickets++)
+                          : null,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
           Expanded(
-              child: Column(children: [
-            const Icon(Icons.attach_money, color: Color(0xFF4CAF50)),
-            Text('Precio: \$${widget.experience.price} MXN'),
-          ])),
+            child: ElevatedButton(
+              onPressed: isFullyBooked || _selectedTickets > availableTickets
+                  ? null
+                  : _bookExperience,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFE67E22),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 5,
+              ),
+              child: Text(
+                isFullyBooked ? 'Agotado' : 'Reservar ($_selectedTickets)',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
         ],
-      );
-
-  Widget _buildBookingButton() => SizedBox(
-        width: double.infinity,
-        child: ElevatedButton(
-          onPressed: _showBookingForm,
-          style:
-              ElevatedButton.styleFrom(backgroundColor: const Color(0xFFE67E22)),
-          child: const Text('Reservar Experiencia'),
-        ),
-      );
-
-  @override
-  void dispose() {
-    _peopleController.dispose();
-    super.dispose();
+      ),
+    );
   }
 }
