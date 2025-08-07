@@ -26,6 +26,7 @@ dependencies:
 
   intl: ^0.18.1
   flutter_rating_bar: ^4.0.0
+  geoflutterfire_plus: ^0.0.32 # O la última versión disponible
 
 dev_dependencies:
   flutter_test:

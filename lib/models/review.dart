@@ -1,11 +1,10 @@
+// models/review.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// Clase de modelo para una `Review`.
-/// Esto nos ayuda a estructurar los datos de una reseña en un objeto Dart.
 class Review {
   final String id;
   final String userId;
-  final String userName;
+  final String userName; // Para mostrar el nombre del autor
   final String experienceId;
   final double rating;
   final String comment;
@@ -21,21 +20,7 @@ class Review {
     required this.createdAt,
   });
 
-  /// Constructor de fábrica para crear una instancia de Review desde un DocumentSnapshot de Firestore.
-  factory Review.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>?;
-    return Review(
-      id: doc.id,
-      userId: data?['userId'] as String? ?? '',
-      userName: data?['userName'] as String? ?? 'Anónimo',
-      experienceId: data?['experienceId'] as String? ?? '',
-      rating: (data?['rating'] as num?)?.toDouble() ?? 0.0,
-      comment: data?['comment'] as String? ?? '',
-      createdAt: (data?['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-    );
-  }
-
-  /// Método para convertir una instancia de Review a un mapa para subir a Firestore.
+  // Convertir un objeto Review a un Map para Firestore
   Map<String, dynamic> toMap() {
     return {
       'userId': userId,
@@ -43,7 +28,21 @@ class Review {
       'experienceId': experienceId,
       'rating': rating,
       'comment': comment,
-      'createdAt': createdAt,
+      'createdAt': Timestamp.fromDate(createdAt), // Firestore usa Timestamps
     };
+  }
+
+  // Crear un objeto Review desde un Firestore DocumentSnapshot
+  factory Review.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data()!;
+    return Review(
+      id: doc.id,
+      userId: data['userId'] ?? '',
+      userName: data['userName'] ?? 'Usuario Anónimo',
+      experienceId: data['experienceId'] ?? '',
+      rating: (data['rating'] as num?)?.toDouble() ?? 0.0,
+      comment: data['comment'] ?? '',
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
   }
 }
