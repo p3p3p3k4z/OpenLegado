@@ -2,10 +2,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../models/experience.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:geolocator/geolocator.dart';
+// import 'package:geolocator/geolocator.dart'; // Descomentar si se usa para algo más
 
+// Importa los modelos de datos modularizados
+import '../models/experience.dart';
+import '../models/user.dart'; // Modelo AppUser para obtener nombre de usuario
+import '../models/booking.dart';
+import '../models/review.dart'; // Modelo Review para la sección de comentarios
+
+/// Pantalla que muestra los detalles completos de una experiencia.
 class ExperienceDetailScreen extends StatefulWidget {
   final Experience experience;
 
@@ -18,27 +24,60 @@ class ExperienceDetailScreen extends StatefulWidget {
 }
 
 class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
+  // Estado para gestionar si la experiencia está guardada por el usuario
   bool _isFavorite = false;
   bool _isLoadingFavorite = false;
-  bool _isBooking = false;
 
+  // Estado y lógica para la reserva
+  int _selectedTickets = 1;
+
+  // Mapa
   final Completer<GoogleMapController> _mapController = Completer();
   late CameraPosition _cameraPosition;
   late Marker _experienceMarker;
+  bool _isMapLoading = true;
 
-  // Controladores para la reserva
-  DateTime? _selectedDate;
-  final TextEditingController _peopleController =
-      TextEditingController(text: '1');
+  // Estados para las reseñas
+  List<Review> _reviews = [];
+  bool _isLoadingReviews = true;
+  final TextEditingController _commentController = TextEditingController();
+  double _currentRating = 0.0; // 0.0 indica sin calificar, se usan estrellas de 1 a 5
+  AppUser? _currentUserData; // Para obtener el nombre del usuario al comentar
+  bool _isSubmittingReview = false;
+
+  // Para refrescar los datos de la experiencia (rating, bookedTickets, etc.)
+  late Experience _currentExperience;
+
 
   @override
   void initState() {
     super.initState();
+    _currentExperience = widget.experience; // Inicializar con la experiencia pasada
     _checkIfFavorite();
+    _initMap();
+    _fetchUserData(); // Cargar datos del usuario para el nombre al comentar
+    _fetchReviews();  // Cargar las reseñas de la experiencia
+  }
 
-    // Inicializar el mapa con la ubicación de la experiencia
+  @override
+  void dispose() {
+    _commentController.dispose(); // Liberar el controlador de texto
+    super.dispose();
+  }
+
+  /// Inicializa la posición del mapa y el marcador.
+  void _initMap() {
+    if (_currentExperience.latitude == 0.0 && _currentExperience.longitude == 0.0) {
+      if (mounted) {
+        setState(() {
+          _isMapLoading = false;
+        });
+      }
+      print("Advertencia: Coordenadas de la experiencia no válidas para el mapa.");
+      return;
+    }
     final latLng =
-        LatLng(widget.experience.latitude, widget.experience.longitude);
+    LatLng(_currentExperience.latitude, _currentExperience.longitude);
 
     _cameraPosition = CameraPosition(
       target: latLng,
@@ -46,409 +85,878 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
     );
 
     _experienceMarker = Marker(
-      markerId: MarkerId(widget.experience.id),
+      markerId: MarkerId(_currentExperience.id),
       position: latLng,
-      infoWindow: InfoWindow(title: widget.experience.title),
+      infoWindow: InfoWindow(
+        title: _currentExperience.title,
+        snippet: _currentExperience.location,
+      ),
     );
+    if (mounted) {
+      setState(() {
+        _isMapLoading = false;
+      });
+    }
   }
 
-  /// Obtener ubicación actual y centrar el mapa
-  Future<void> _goToCurrentLocation() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      _showSnackBar('Activa el GPS para ver tu ubicación.', Colors.orange);
-      return;
-    }
-
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        _showSnackBar('Permiso de ubicación denegado.', Colors.red);
-        return;
+  /// Refresca los datos de la experiencia desde Firestore.
+  Future<void> _refreshExperienceData() async {
+    try {
+      final docSnapshot = await FirebaseFirestore.instance
+          .collection('experiences')
+          .doc(widget.experience.id) // Usar widget.experience.id para asegurar que es el original
+          .get();
+      if (docSnapshot.exists && mounted) {
+        setState(() {
+          _currentExperience = Experience.fromFirestore(docSnapshot);
+        });
+      }
+    } catch (e) {
+      print("Error al refrescar datos de la experiencia: $e");
+      if(mounted) {
+        _showSnackBar("No se pudieron actualizar los datos de la experiencia.", Colors.orange);
       }
     }
-
-    Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high);
-
-    final GoogleMapController controller = await _mapController.future;
-    controller.animateCamera(CameraUpdate.newLatLngZoom(
-        LatLng(position.latitude, position.longitude), 15));
   }
 
-  /// Verifica si la experiencia está en favoritos
+  /// Obtiene los datos del usuario actual (nombre) para las reseñas.
+  Future<void> _fetchUserData() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final userDoc =
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      if (userDoc.exists && mounted) {
+        setState(() {
+          _currentUserData = AppUser.fromFirestore(userDoc);
+        });
+      }
+    } catch (e) {
+      print('Error al obtener datos del usuario: $e');
+    }
+  }
+
+  /// Obtiene las reseñas para la experiencia actual.
+  Future<void> _fetchReviews() async {
+    if (!mounted) return;
+    setState(() {
+      _isLoadingReviews = true;
+    });
+    try {
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('reviews')
+          .where('experienceId', isEqualTo: _currentExperience.id)
+          .orderBy('createdAt', descending: true)
+          .get();
+
+      if (mounted) {
+        final reviews =
+        querySnapshot.docs.map((doc) => Review.fromFirestore(doc)).toList();
+        setState(() {
+          _reviews = reviews;
+        });
+      }
+    } catch (e) {
+      print('Error al cargar reseñas: $e');
+      if (mounted) {
+        _showSnackBar('Error al cargar reseñas.', Colors.red);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingReviews = false;
+        });
+      }
+    }
+  }
+
+  /// Verifica si la experiencia está en favoritos.
   Future<void> _checkIfFavorite() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    setState(() => _isLoadingFavorite = true);
-    try {
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
+    if (!mounted) return;
+    setState(() { _isLoadingFavorite = true; });
 
-      if (userDoc.exists) {
-        final data = userDoc.data();
-        final savedExperiences =
-            List<String>.from(data?['savedExperiences'] ?? []);
+    try {
+      final userDoc =
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      if (userDoc.exists && mounted) {
+        final userData = AppUser.fromFirestore(userDoc);
         setState(() {
-          _isFavorite = savedExperiences.contains(widget.experience.id);
+          _isFavorite =
+              userData.savedExperiences.contains(_currentExperience.id);
         });
       }
     } catch (e) {
-      print('Error checking favorite: $e');
+      print('Error al verificar favoritos: $e');
     } finally {
-      setState(() => _isLoadingFavorite = false);
+      if (mounted) { setState(() { _isLoadingFavorite = false; }); }
     }
   }
 
-  /// Alternar favoritos
+  /// Alterna el estado de favorito de la experiencia.
   Future<void> _toggleFavorite() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      _showSnackBar(
-          'Debes iniciar sesión para guardar experiencias.', Colors.orange);
+      _showSnackBar('Debe iniciar sesión para guardar experiencias.', Colors.amber);
       return;
     }
 
-    setState(() => _isLoadingFavorite = true);
+    if (!mounted) return;
+    setState(() { _isLoadingFavorite = true; });
+
+    final userDocRef =
+    FirebaseFirestore.instance.collection('users').doc(user.uid);
     try {
-      final userDocRef =
-          FirebaseFirestore.instance.collection('users').doc(user.uid);
       if (_isFavorite) {
         await userDocRef.update({
-          'savedExperiences': FieldValue.arrayRemove([widget.experience.id])
+          'savedExperiences': FieldValue.arrayRemove([_currentExperience.id]),
         });
-        _showSnackBar('Eliminado de favoritos.', Colors.grey);
+        if (mounted) _showSnackBar('Experiencia eliminada de favoritos.', Colors.orange);
       } else {
         await userDocRef.update({
-          'savedExperiences': FieldValue.arrayUnion([widget.experience.id])
+          'savedExperiences': FieldValue.arrayUnion([_currentExperience.id]),
         });
-        _showSnackBar('Añadido a favoritos.', Colors.green);
+        if (mounted) _showSnackBar('Experiencia guardada en favoritos.', Colors.green);
       }
-      setState(() => _isFavorite = !_isFavorite);
+      if (mounted) { setState(() { _isFavorite = !_isFavorite; }); }
     } catch (e) {
-      _showSnackBar('Error al actualizar favoritos: $e', Colors.red);
+      if (mounted) _showSnackBar('Error al actualizar favoritos: ${e.toString()}', Colors.red);
     } finally {
-      setState(() => _isLoadingFavorite = false);
+      if (mounted) { setState(() { _isLoadingFavorite = false; }); }
     }
   }
 
-  /// Mostrar snackbar
-  void _showSnackBar(String message, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: color),
-    );
-  }
-
-  /// Formulario de reserva
-  void _showBookingForm() {
+  /// Realiza la reserva de boletos.
+  Future<void> _bookExperience() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      _showSnackBar('Debes iniciar sesión para reservar.', Colors.orange);
+      _showSnackBar('Debe iniciar sesión para reservar.', Colors.amber);
       return;
     }
 
-    _selectedDate = null;
-    _peopleController.text = '1';
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) {
-          return AlertDialog(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            title: Text(
-              'Reservar ${widget.experience.title}',
-              style: const TextStyle(
-                color: Color(0xFF8B4513),
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  title: Text(
-                    _selectedDate == null
-                        ? 'Seleccionar fecha'
-                        : 'Fecha: ${MaterialLocalizations.of(context).formatShortDate(_selectedDate!)}',
-                  ),
-                  trailing:
-                      const Icon(Icons.calendar_today, color: Color(0xFFE67E22)),
-                  onTap: () async {
-                    final DateTime? picked = await showDatePicker(
-                      context: context,
-                      initialDate: DateTime.now(),
-                      firstDate: DateTime.now(),
-                      lastDate: DateTime(DateTime.now().year + 2),
-                    );
-                    if (picked != null) {
-                      setModalState(() {
-                        _selectedDate = picked;
-                      });
-                    }
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _peopleController,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    labelText: 'Número de personas',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancelar'),
-              ),
-              ElevatedButton(
-                onPressed: _isBooking
-                    ? null
-                    : () => _createBooking(context), // Crear reserva
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFE67E22)),
-                child: _isBooking
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text('Confirmar Reserva'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  /// Crear reserva en Firestore
-  Future<void> _createBooking(BuildContext dialogContext) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    if (_selectedDate == null) {
-      _showSnackBar('Selecciona una fecha.', Colors.red);
+    if (_currentExperience.maxCapacity > 0 && _selectedTickets <= 0) {
+      _showSnackBar('Debe seleccionar al menos un boleto.', Colors.red);
       return;
     }
 
-    final numberOfPeople = int.tryParse(_peopleController.text.trim());
-    if (numberOfPeople == null || numberOfPeople <= 0) {
-      _showSnackBar('Número de personas no válido.', Colors.red);
-      return;
-    }
+    final experienceRef = FirebaseFirestore.instance
+        .collection('experiences')
+        .doc(_currentExperience.id);
+    final bookingsRef = FirebaseFirestore.instance.collection('bookings');
 
-    setState(() => _isBooking = true);
+    if (mounted) _showSnackBar('Procesando reserva...', Colors.blue);
+
     try {
-      await FirebaseFirestore.instance.collection('bookings').add({
-        'userId': user.uid,
-        'experienceId': widget.experience.id,
-        'experienceTitle': widget.experience.title,
-        'experienceImage': widget.experience.imageAsset,
-        'bookingDate': Timestamp.fromDate(_selectedDate!),
-        'numberOfPeople': numberOfPeople,
-        'status': 'pending',
-        'createdAt': FieldValue.serverTimestamp(),
+      String? bookingId;
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final experienceSnapshot = await transaction.get(experienceRef);
+        if (!experienceSnapshot.exists) throw 'La experiencia ya no está disponible.';
+
+        final currentExperienceData = Experience.fromFirestore(experienceSnapshot);
+
+        if (currentExperienceData.maxCapacity > 0) {
+          final availableTickets =
+              currentExperienceData.maxCapacity - currentExperienceData.bookedTickets;
+          if (_selectedTickets > availableTickets) {
+            throw 'No hay suficientes boletos disponibles. Quedan $availableTickets.';
+          }
+          final newBookedTickets = currentExperienceData.bookedTickets + _selectedTickets;
+          transaction.update(experienceRef, {'bookedTickets': newBookedTickets});
+        }
+
+        final newBookingRef = bookingsRef.doc();
+        bookingId = newBookingRef.id;
+        final newBooking = Booking(
+          id: bookingId!,
+          userId: user.uid,
+          experienceId: _currentExperience.id,
+          experienceTitle: _currentExperience.title,
+          experienceImage: _currentExperience.imageAsset,
+          numberOfPeople: _currentExperience.maxCapacity > 0 ? _selectedTickets : 0,
+          bookingDate: DateTime.now(),
+          status: 'confirmed',
+          createdAt: DateTime.now(),
+        );
+        transaction.set(newBookingRef, newBooking.toMap());
       });
 
-      Navigator.pop(dialogContext);
-      _showSnackBar('Reserva creada con éxito.', Colors.green);
-    } catch (e) {
-      _showSnackBar('Error al crear reserva: $e', Colors.red);
-    } finally {
-      setState(() => _isBooking = false);
+      if (mounted) {
+        _showSnackBar('Reserva exitosa para ${_currentExperience.maxCapacity > 0 ? "$_selectedTickets boleto(s)" : "la experiencia"}.', Colors.green);
+        setState(() { _selectedTickets = 1; });
+        await _refreshExperienceData();
+      }
+    } catch (error) {
+      if (mounted) _showSnackBar('Error en la reserva: ${error.toString()}', Colors.red);
     }
+  }
+
+  /// Envía una nueva reseña a Firestore y actualiza el rating de la experiencia.
+  Future<void> _submitReview() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || _currentUserData == null) {
+      _showSnackBar('Debe iniciar sesión para dejar una reseña.', Colors.amber);
+      return;
+    }
+    if (_commentController.text.trim().isEmpty) {
+      _showSnackBar('Por favor, escribe un comentario.', Colors.red);
+      return;
+    }
+    if (_currentRating == 0.0) {
+      _showSnackBar('Por favor, selecciona una calificación (1-5 estrellas).', Colors.red);
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() { _isSubmittingReview = true; });
+
+    try {
+      final newReviewRef = FirebaseFirestore.instance.collection('reviews').doc();
+      final newReview = Review(
+        id: newReviewRef.id,
+        userId: user.uid,
+        userName: _currentUserData?.name ?? 'Usuario Anónimo',
+        experienceId: _currentExperience.id,
+        rating: _currentRating,
+        comment: _commentController.text.trim(),
+        createdAt: DateTime.now(),
+      );
+      await newReviewRef.set(newReview.toMap());
+
+      final experienceRef = FirebaseFirestore.instance
+          .collection('experiences')
+          .doc(_currentExperience.id);
+
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final freshSnapshot = await transaction.get(experienceRef);
+        if (!freshSnapshot.exists) throw 'La experiencia no fue encontrada.';
+
+        final freshExperience = Experience.fromFirestore(freshSnapshot);
+        final currentTotalRatingPoints = freshExperience.rating * freshExperience.reviewsCount;
+        final newTotalRatingPoints = currentTotalRatingPoints + _currentRating;
+        final newTotalReviews = freshExperience.reviewsCount + 1;
+        final newAverageRating = newTotalReviews > 0 ? newTotalRatingPoints / newTotalReviews : 0.0;
+
+        transaction.update(experienceRef, {
+          'reviewsCount': newTotalReviews,
+          'rating': double.parse(newAverageRating.toStringAsFixed(1)),
+        });
+      });
+
+      if (mounted) {
+        _showSnackBar('Reseña enviada con éxito.', Colors.green);
+        _commentController.clear();
+        setState(() { _currentRating = 0.0; });
+        await _refreshExperienceData();
+        _fetchReviews();
+      }
+    } catch (e) {
+      print('Error al enviar reseña: $e');
+      if (mounted) _showSnackBar('Error al enviar la reseña: ${e.toString()}', Colors.red);
+    } finally {
+      if (mounted) { setState(() { _isSubmittingReview = false; }); }
+    }
+  }
+
+  /// Muestra una Snackbar.
+  void _showSnackBar(String message, Color color) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final availableTickets = _currentExperience.maxCapacity - _currentExperience.bookedTickets;
+    final isFullyBooked = _currentExperience.maxCapacity > 0 && availableTickets <= 0;
+
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            expandedHeight: 300,
-            pinned: true,
-            backgroundColor: const Color(0xFF8B4513),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => Navigator.pop(context),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          await _refreshExperienceData();
+          await _fetchReviews();
+          await _checkIfFavorite();
+        },
+        child: CustomScrollView(
+          slivers: [
+            _buildSliverAppBar(),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildTitleAndRating(),
+                    const SizedBox(height: 16),
+                    _buildHighlights(),
+                    const SizedBox(height: 24),
+                    const Text('Descripción', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF5D4037))),
+                    const SizedBox(height: 8),
+                    Text(_currentExperience.description, style: TextStyle(fontSize: 15, height: 1.5, color: Colors.grey[800])),
+                    const SizedBox(height: 24),
+                    _buildPriceAndDuration(),
+                    const SizedBox(height: 24),
+                    const Text('Ubicación', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF5D4037))),
+                    const SizedBox(height: 12),
+                    Text(_currentExperience.location, style: TextStyle(fontSize: 15, color: Colors.grey[700])),
+                    const SizedBox(height: 12),
+                    _buildMapSection(),
+                    const SizedBox(height: 24),
+                    const Text('Reserva tu Experiencia', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF5D4037))),
+                    const SizedBox(height: 16),
+                    _buildBookingControls(availableTickets, isFullyBooked),
+                    const SizedBox(height: 32),
+                    _buildReviewsSectionHeader(),
+                    const SizedBox(height: 16),
+                    _buildReviewsList(),
+                    _buildAddReviewSection(),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
             ),
-            actions: [
-              _isLoadingFavorite
-                  ? const Padding(
-                      padding: EdgeInsets.all(16.0),
-                      child: CircularProgressIndicator(color: Colors.white),
-                    )
-                  : IconButton(
-                      icon: Icon(
-                        _isFavorite ? Icons.favorite : Icons.favorite_border,
-                        color: _isFavorite ? Colors.red : Colors.white,
-                      ),
-                      onPressed: _toggleFavorite,
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- Widgets de la UI ---
+
+  Widget _buildSliverAppBar() {
+    return SliverAppBar(
+      expandedHeight: 280,
+      pinned: true,
+      floating: false,
+      snap: false,
+      backgroundColor: const Color(0xFF8B4513),
+      flexibleSpace: FlexibleSpaceBar(
+        titlePadding: const EdgeInsets.symmetric(horizontal: 50, vertical: 12),
+        title: Text(
+          _currentExperience.title,
+          style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        centerTitle: true,
+        background: Hero(
+          tag: 'experience_image_${_currentExperience.id}',
+          child: _currentExperience.imageAsset.startsWith('http')
+              ? Image.network(
+            _currentExperience.imageAsset,
+            fit: BoxFit.cover,
+            loadingBuilder: (BuildContext context, Widget child, ImageChunkEvent? loadingProgress) {
+              if (loadingProgress == null) return child;
+              return Center(
+                child: CircularProgressIndicator(
+                  value: loadingProgress.expectedTotalBytes != null
+                      ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                      : null,
+                  color: Colors.white,
+                ),
+              );
+            },
+            errorBuilder: (context, error, stackTrace) => Image.asset('assets/images/placeholder.png', fit: BoxFit.cover),
+          )
+              : Image.asset(
+            _currentExperience.imageAsset,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => Image.asset('assets/images/placeholder.png', fit: BoxFit.cover),
+          ),
+        ),
+      ),
+      actions: [
+        if (_isLoadingFavorite)
+          const Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Center(child: SizedBox(width:24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))),
+          )
+        else
+          IconButton(
+            icon: Icon(
+              _isFavorite ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+              color: Colors.white,
+              size: 28,
+            ),
+            tooltip: _isFavorite ? 'Eliminar de favoritos' : 'Guardar en favoritos',
+            onPressed: _toggleFavorite,
+          ),
+      ],
+    );
+  }
+
+  Widget _buildTitleAndRating() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Text(
+            _currentExperience.title,
+            style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Color(0xFF5D4037)),
+          ),
+        ),
+        const SizedBox(width: 16),
+        if (_currentExperience.rating > 0 && _currentExperience.reviewsCount > 0)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+                color: const Color(0xFFE67E22),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [ BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 5, offset: const Offset(0,2)) ]
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.star_rounded, color: Colors.white, size: 18),
+                const SizedBox(width: 5),
+                Text(
+                  _currentExperience.rating.toStringAsFixed(1),
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildHighlights() {
+    if (_currentExperience.highlights.isEmpty) return const SizedBox.shrink();
+    return Wrap(
+      spacing: 8.0,
+      runSpacing: 8.0,
+      children: _currentExperience.highlights.map((highlight) {
+        return Chip(
+          avatar: Icon(Icons.check_circle_outline_rounded, color: Color(0xFF5D4037), size: 18),
+          label: Text(highlight),
+          backgroundColor: const Color(0xFFF5EFE6),
+          labelStyle: const TextStyle(color: Color(0xFF5D4037), fontWeight: FontWeight.w500),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: Colors.brown.withOpacity(0.15))
+          ),
+          padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildPriceAndDuration() {
+    return Row(
+      children: [
+        _buildInfoCard(
+          icon: Icons.access_time_filled_rounded,
+          label: 'Duración',
+          value: _currentExperience.duration,
+          iconColor: const Color(0xFFE67E22),
+        ),
+        const SizedBox(width: 16),
+        _buildInfoCard(
+          icon: Icons.local_offer_rounded,
+          label: 'Precio',
+          value: _currentExperience.price > 0 ? '\$${_currentExperience.price.toStringAsFixed(2)} MXN' : 'Gratis',
+          iconColor: Colors.green[700]!,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInfoCard({ required IconData icon, required String label, required String value, required Color iconColor}) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+        decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [ BoxShadow(color: Colors.black.withOpacity(0.07), blurRadius: 10, offset: const Offset(0, 3)) ],
+            border: Border.all(color: Colors.grey.shade200, width: 0.5)
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(icon, color: iconColor, size: 30),
+            const SizedBox(height: 8),
+            Text(label, style: const TextStyle(fontSize: 13, color: Colors.blueGrey, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 4),
+            Text(value, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF424242))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMapSection() {
+    if (_currentExperience.latitude == 0.0 && _currentExperience.longitude == 0.0) {
+      return Container(
+        height: 150,
+        decoration: BoxDecoration(
+            color: Colors.grey[200],
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.grey.shade300)
+        ),
+        child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.map_outlined, size: 40, color: Colors.grey[600]),
+                const SizedBox(height: 8),
+                Text("Ubicación no disponible.", style: TextStyle(color: Colors.grey[700])),
+              ],
+            )
+        ),
+      );
+    }
+    return _isMapLoading
+        ? const Center(child: Padding(padding: EdgeInsets.all(20.0), child: CircularProgressIndicator()))
+        : Container(
+      height: 230,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [ BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 5)) ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: GoogleMap(
+          initialCameraPosition: _cameraPosition,
+          markers: {_experienceMarker},
+          onMapCreated: (GoogleMapController controller) {
+            if (!_mapController.isCompleted && mounted) { _mapController.complete(controller); }
+          },
+          myLocationButtonEnabled: true,
+          myLocationEnabled: false, // Por defecto false, requiere permisos y puede ser confuso
+          zoomControlsEnabled: true,
+          mapToolbarEnabled: true,
+          compassEnabled: true,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBookingControls(int availableTickets, bool isFullyBooked) {
+    bool canBook = FirebaseAuth.instance.currentUser != null &&
+        (_currentExperience.maxCapacity == 0 || (!isFullyBooked && _selectedTickets > 0 && _selectedTickets <= availableTickets));
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+          color: Colors.brown[50]?.withOpacity(0.7),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [ BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 3)) ],
+          border: Border.all(color: Colors.brown.shade100)
+      ),
+      child: Column(
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                flex: 2,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Boletos', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF5D4037))),
+                    const SizedBox(height: 4),
+                    Text(
+                      _currentExperience.maxCapacity == 0 ? 'No requiere reserva' :
+                      isFullyBooked ? 'Agotados' : 'Disponibles: $availableTickets',
+                      style: TextStyle(color: isFullyBooked ? Colors.red.shade700 : Colors.green.shade800, fontWeight: FontWeight.w600),
                     ),
+                    const SizedBox(height: 8),
+                    if (!isFullyBooked && _currentExperience.maxCapacity > 0)
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.remove_circle_outline_rounded, color: Color(0xFFE67E22)),
+                            iconSize: 30, padding: EdgeInsets.zero, constraints: BoxConstraints(),
+                            onPressed: _selectedTickets > 1 ? () => setState(() => _selectedTickets--) : null,
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 10.0),
+                            child: Text(_selectedTickets.toString(), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF424242))),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle_outline_rounded, color: Color(0xFFE67E22)),
+                            iconSize: 30, padding: EdgeInsets.zero, constraints: BoxConstraints(),
+                            onPressed: _selectedTickets < availableTickets ? () => setState(() => _selectedTickets++) : null,
+                          ),
+                        ],
+                      )
+                    else if (_currentExperience.maxCapacity == 0)
+                      Text('No se necesita seleccionar boletos.', style: TextStyle(color: Colors.grey[700])),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                flex: 3,
+                child: ElevatedButton.icon(
+                  icon: Icon(FirebaseAuth.instance.currentUser == null ? Icons.login_rounded : Icons.confirmation_number_rounded, size: 20),
+                  label: Text(
+                    FirebaseAuth.instance.currentUser == null ? 'Inicia Sesión' :
+                    _currentExperience.maxCapacity == 0 ? 'Asistir' :
+                    isFullyBooked ? 'Agotado' : 'Reservar ($_selectedTickets)',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                  onPressed: FirebaseAuth.instance.currentUser == null
+                      ? () { _showSnackBar('Por favor, inicia sesión para reservar.', Colors.amber); /* TODO: Navegar a Login */ }
+                      : (canBook ? _bookExperience : null),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFE67E22), foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    elevation: 3,
+                    disabledBackgroundColor: Colors.grey[300], disabledForegroundColor: Colors.grey[700],
+                  ),
+                ),
+              ),
             ],
-            flexibleSpace: FlexibleSpaceBar(
-              background: Image.asset(
-                widget.experience.imageAsset,
-                fit: BoxFit.cover,
+          ),
+          if (FirebaseAuth.instance.currentUser == null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12.0),
+              child: Text(
+                'Debes iniciar sesión para poder reservar esta experiencia.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.red[700], fontSize: 13),
               ),
             ),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildHeader(),
-                  const SizedBox(height: 24),
-                  _buildDescription(),
-                  const SizedBox(height: 24),
-                  _buildHighlights(),
-                  const SizedBox(height: 24),
-                  _buildLocation(),
-                  const SizedBox(height: 24),
-                  _buildPriceAndDuration(),
-                  const SizedBox(height: 32),
-                  _buildBookingButton(),
-                  const SizedBox(height: 24),
-                ],
-              ),
-            ),
-          ),
         ],
       ),
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildReviewsSectionHeader() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          widget.experience.title,
-          style: const TextStyle(
-              fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF5D4037)),
+        const Text(
+          'Comentarios y Reseñas',
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF5D4037)),
         ),
-        const SizedBox(height: 8),
-        Row(
+        if (_currentExperience.reviewsCount > 0) ...[
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(
+                _currentExperience.rating.toStringAsFixed(1),
+                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFFE67E22)),
+              ),
+              const SizedBox(width: 5),
+              const Icon(Icons.star_rounded, color: Color(0xFFE67E22), size: 26),
+              const SizedBox(width: 10),
+              Text(
+                '(${_currentExperience.reviewsCount} reseña${_currentExperience.reviewsCount == 1 ? "" : "s"})',
+                style: TextStyle(color: Colors.grey[700], fontSize: 16, fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
+        ] else ... [
+          const SizedBox(height: 8),
+          Text(
+            _isLoadingReviews ? 'Cargando reseñas...' : 'Aún no hay reseñas. ¡Sé el primero!',
+            style: TextStyle(color: Colors.grey[600], fontSize: 15, fontStyle: FontStyle.italic),
+          ),
+        ]
+      ],
+    );
+  }
+
+  Widget _buildReviewsList() {
+    if (_isLoadingReviews) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 30.0),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    // No mostrar el texto de "no hay reseñas" aquí si ya lo hace el header.
+    if (_reviews.isEmpty && !_isLoadingReviews) {
+      return const SizedBox.shrink();
+    }
+    return ListView.builder(
+      physics: const NeverScrollableScrollPhysics(), // Para que no scrollee dentro del CustomScrollView
+      shrinkWrap: true,
+      itemCount: _reviews.length,
+      itemBuilder: (context, index) {
+        return _buildReviewItem(_reviews[index]);
+      },
+    );
+  }
+
+  Widget _buildReviewItem(Review review) {
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8.0),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 2,
+      color: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(Icons.location_on, size: 20, color: Color(0xFF8D6E63)),
-            const SizedBox(width: 4),
-            Text(widget.experience.location,
-                style:
-                    const TextStyle(fontSize: 16, color: Color(0xFF8D6E63))),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          review.userName,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF5D4037)),
+                        ),
+                        Text(
+                          // Formatear la fecha para que sea más legible
+                          "${review.createdAt.day}/${review.createdAt.month}/${review.createdAt.year}",
+                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                        ),
+                      ],
+                    )
+                ),
+                Row(
+                  children: List.generate(5, (starIndex) {
+                    return Icon(
+                      starIndex < review.rating ? Icons.star_rounded : Icons.star_border_rounded,
+                      color: Colors.amber,
+                      size: 18,
+                    );
+                  }),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              review.comment,
+              style: TextStyle(fontSize: 14.5, height: 1.4, color: Colors.grey[850]),
+            ),
           ],
         ),
-      ],
+      ),
     );
   }
 
-  Widget _buildDescription() => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Descripción',
-              style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF8B4513))),
-          const SizedBox(height: 12),
-          Text(widget.experience.description,
-              style: const TextStyle(fontSize: 16, height: 1.5)),
-        ],
-      );
+  // ... (código anterior como se proporcionó) ...
 
-  Widget _buildHighlights() {
-    if (widget.experience.highlights.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Lo que incluye',
-            style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF8B4513))),
-        const SizedBox(height: 12),
-        ...widget.experience.highlights.map((h) => Text('- $h')),
-      ],
-    );
-  }
-
-  Widget _buildLocation() {
-    final lat = widget.experience.latitude.toStringAsFixed(4);
-    final lng = widget.experience.longitude.toStringAsFixed(4);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Ubicación',
-            style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF8B4513))),
-        const SizedBox(height: 12),
-        SizedBox(
-          height: 200,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(15),
-            child: GoogleMap(
-              initialCameraPosition: _cameraPosition,
-              markers: {_experienceMarker},
-              onMapCreated: (controller) {
-                if (!_mapController.isCompleted) {
-                  _mapController.complete(controller);
-                }
-              },
-              myLocationEnabled: true,
-              zoomControlsEnabled: true,
-            ),
+  Widget _buildAddReviewSection() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 20.0, bottom: 10.0),
+        child: Center(
+          child: Column(
+            children: [
+              Text(
+                'Inicia sesión para dejar tu reseña.',
+                style: TextStyle(color: Colors.grey[700], fontSize: 15),
+              ),
+              const SizedBox(height: 10),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.login_rounded),
+                label: const Text('Ir a Iniciar Sesión'),
+                onPressed: () {
+                  // TODO: Implementar navegación a la pantalla de login.
+                  // Navigator.of(context).push(MaterialPageRoute(builder: (context) => LoginScreen()));
+                  _showSnackBar('Funcionalidad de "Ir a Iniciar Sesión" no implementada.', Colors.blueGrey);
+                },
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF8B4513),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8))),
+              )
+            ],
           ),
         ),
-        TextButton.icon(
-          onPressed: _goToCurrentLocation,
-          icon: const Icon(Icons.my_location, color: Color(0xFFE67E22)),
-          label: const Text('Ir a mi ubicación',
-              style: TextStyle(color: Color(0xFFE67E22))),
+      );
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(top: 20.0, bottom: 10.0),
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Deja tu reseña',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF5D4037)),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(5, (index) {
+                return IconButton(
+                  icon: Icon(
+                    _currentRating >= index + 1 ? Icons.star_rounded : Icons.star_border_rounded,
+                    color: Colors.amber,
+                    size: 32,
+                  ),
+                  onPressed: () {
+                    if (mounted) {
+                      setState(() {
+                        _currentRating = (index + 1).toDouble();
+                      });
+                    }
+                  },
+                );
+              }),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _commentController,
+              maxLines: 3,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: InputDecoration(
+                hintText: 'Escribe tu comentario aquí...',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: Color(0xFFE67E22), width: 1.5),
+                ),
+                filled: true,
+                fillColor: Colors.grey[50],
+                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Align(
+              alignment: Alignment.centerRight,
+              child: _isSubmittingReview
+                  ? const CircularProgressIndicator()
+                  : ElevatedButton.icon(
+                icon: const Icon(Icons.send_rounded, size: 18),
+                label: const Text('Enviar Reseña'),
+                onPressed: _submitReview,
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFE67E22),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)
+                ),
+              ),
+            ),
+          ],
         ),
-        Text('Lat: $lat, Lng: $lng',
-            style: const TextStyle(color: Color(0xFF8D6E63))),
-      ],
+      ),
     );
-  }
-
-  Widget _buildPriceAndDuration() => Row(
-        children: [
-          Expanded(
-              child: Column(children: [
-            const Icon(Icons.access_time, color: Color(0xFFE67E22)),
-            Text('Duración: ${widget.experience.duration}'),
-          ])),
-          Expanded(
-              child: Column(children: [
-            const Icon(Icons.attach_money, color: Color(0xFF4CAF50)),
-            Text('Precio: \$${widget.experience.price} MXN'),
-          ])),
-        ],
-      );
-
-  Widget _buildBookingButton() => SizedBox(
-        width: double.infinity,
-        child: ElevatedButton(
-          onPressed: _showBookingForm,
-          style:
-              ElevatedButton.styleFrom(backgroundColor: const Color(0xFFE67E22)),
-          child: const Text('Reservar Experiencia'),
-        ),
-      );
-
-  @override
-  void dispose() {
-    _peopleController.dispose();
-    super.dispose();
   }
 }

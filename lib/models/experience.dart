@@ -1,22 +1,26 @@
-import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // Importado para DocumentSnapshot
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Clase de modelo para representar una experiencia cultural en la aplicación Legado.
 class Experience {
-  final String id; // ID único de la experiencia (UID de Firestore)
+  final String id;
   final String title;
   final String description;
-  final String imageAsset; // Ruta del asset local o URL de imagen (si usas Cloud Storage)
+  final String imageAsset; // Ruta del asset local o URL de imagen
   final String location;
-  final double rating;
+  final double rating; // Calificación promedio de todas las reseñas
   final int price; // Precio en MXN
   final String duration;
-  final bool isVerified;
-  final bool isFeatured;
   final List<String> highlights; // Lista de puntos destacados
   final double latitude;
   final double longitude;
   final String category; // Categoría de la experiencia
+
+  // Nuevos campos para la gestión y el feedback
+  final bool isVerified; // Si la experiencia ha sido verificada por un admin
+  final bool isFeatured; // Si la experiencia se destaca en la página principal
+  final int maxCapacity; // Cupo máximo de personas
+  final int bookedTickets; // Número de boletos ya reservados
+  final int reviewsCount; // Cantidad de comentarios
 
   /// Constructor principal para crear una instancia de Experience.
   const Experience({
@@ -25,46 +29,47 @@ class Experience {
     required this.description,
     required this.imageAsset,
     required this.location,
-    required this.rating,
-    required this.price,
+    this.rating = 0.0,
+    this.price = 0,
     required this.duration,
-    this.isVerified = false, // Valor por defecto
-    this.isFeatured = false, // Valor por defecto
-    this.highlights = const [], // Lista vacía por defecto
-    required this.latitude,
-    required this.longitude,
+    this.isVerified = false,
+    this.isFeatured = false,
+    this.highlights = const [],
+    this.latitude = 0.0,
+    this.longitude = 0.0,
     required this.category,
+    this.maxCapacity = 0,
+    this.bookedTickets = 0,
+    this.reviewsCount = 0,
   });
 
   /// Constructor de fábrica para crear una instancia de Experience desde un DocumentSnapshot de Firestore.
-  ///
-  /// Este constructor es crucial para mapear los datos de Firestore (Map<String, dynamic>)
-  /// a un objeto Dart fuertemente tipado. Requiere manejar posibles valores nulos
-  /// y conversiones de tipo para asegurar la robustez.
   factory Experience.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>?; // Obtener los datos como un mapa, puede ser nulo
+    final data = doc.data() as Map<String, dynamic>?;
 
-    // Manejo de datos nulos con operadores de nulabilidad (??)
     return Experience(
-      id: doc.id, // El ID del documento de Firestore es el ID de la experiencia.
+      id: doc.id,
       title: data?['title'] as String? ?? 'Sin título',
       description: data?['description'] as String? ?? 'Sin descripción',
-      imageAsset: data?['imageAsset'] as String? ?? 'assets/placeholder.jpg', // Fallback para imagen
+      imageAsset: data?['imageAsset'] as String? ?? 'assets/placeholder.jpg',
       location: data?['location'] as String? ?? 'Ubicación desconocida',
-      rating: (data?['rating'] as num?)?.toDouble() ?? 0.0, // Conversión segura a double
-      price: (data?['price'] as num?)?.toInt() ?? 0, // Conversión segura a int
+      rating: (data?['rating'] as num?)?.toDouble() ?? 0.0,
+      price: (data?['price'] as num?)?.toInt() ?? 0,
       duration: data?['duration'] as String? ?? 'N/A',
       isVerified: data?['isVerified'] as bool? ?? false,
       isFeatured: data?['isFeatured'] as bool? ?? false,
-      highlights: List<String>.from(data?['highlights'] ?? []), // Conversión segura a List<String>
+      highlights: List<String>.from(data?['highlights'] ?? []),
       latitude: (data?['latitude'] as num?)?.toDouble() ?? 0.0,
       longitude: (data?['longitude'] as num?)?.toDouble() ?? 0.0,
       category: data?['category'] as String? ?? 'General',
+      maxCapacity: (data?['maxCapacity'] as num?)?.toInt() ?? 0,
+      bookedTickets: (data?['bookedTickets'] as num?)?.toInt() ?? 0,
+      reviewsCount: (data?['reviewsCount'] as num?)?.toInt() ?? 0,
     );
   }
 }
 
-// Tu clase ExperienceData original, sin modificaciones.
+/// Clase con datos estáticos para experiencias.
 class ExperienceData {
   static final List<Experience> _allExperiences = [
     Experience(
@@ -82,6 +87,9 @@ class ExperienceData {
       latitude: 16.9602,
       longitude: -96.6908,
       category: 'Arte y Artesanía',
+      maxCapacity: 10,
+      bookedTickets: 5,
+      reviewsCount: 25,
     ),
     Experience(
       id: 'exp002',
@@ -98,6 +106,9 @@ class ExperienceData {
       latitude: 19.0414,
       longitude: -98.2063,
       category: 'Gastronomía',
+      maxCapacity: 8,
+      bookedTickets: 8,
+      reviewsCount: 30,
     ),
     Experience(
       id: 'exp003',
@@ -114,12 +125,15 @@ class ExperienceData {
       latitude: 17.0371,
       longitude: -96.5369,
       category: 'Arte y Artesanía',
+      maxCapacity: 12,
+      bookedTickets: 3,
+      reviewsCount: 15,
     ),
     Experience(
       id: 'exp004',
       title: 'Ruta del Mezcal Artesanal',
       description: 'Explora los palenques tradicionales de mezcal en Oaxaca. Aprende sobre el proceso de elaboración, desde el agave hasta la degustación.',
-      imageAsset: 'assets/mezcal.jpg', // Asume que tienes esta imagen
+      imageAsset: 'assets/mezcal.jpg',
       location: 'Santiago Matatlán, Oaxaca',
       rating: 4.6,
       price: 500,
@@ -130,12 +144,15 @@ class ExperienceData {
       latitude: 16.9023,
       longitude: -96.3845,
       category: 'Gastronomía',
+      maxCapacity: 15,
+      bookedTickets: 12,
+      reviewsCount: 50,
     ),
     Experience(
       id: 'exp005',
       title: 'Danza de los Diablos',
       description: 'Una inmersión en la vibrante Danza de los Diablos de Cuajinicuilapa. Conoce la historia, el vestuario y los pasos de este baile afro-mexicano.',
-      imageAsset: 'assets/danza.jpg', // Asume que tienes esta imagen
+      imageAsset: 'assets/danza.jpg',
       location: 'Cuajinicuilapa, Guerrero',
       rating: 4.5,
       price: 250,
@@ -146,12 +163,15 @@ class ExperienceData {
       latitude: 16.4468,
       longitude: -98.4061,
       category: 'Música y Danza',
+      maxCapacity: 20,
+      bookedTickets: 18,
+      reviewsCount: 10,
     ),
     Experience(
       id: 'exp006',
       title: 'Ceremonia de Temazcal',
       description: 'Experimenta una antigua ceremonia de temazcal para la purificación del cuerpo y el espíritu, guiada por un chamán tradicional.',
-      imageAsset: 'assets/temazcal.jpg', // Asume que tienes esta imagen
+      imageAsset: 'assets/temazcal.jpg',
       location: 'Tepoztlán, Morelos',
       rating: 4.9,
       price: 600,
@@ -162,6 +182,9 @@ class ExperienceData {
       latitude: 18.9863,
       longitude: -99.0963,
       category: 'Bienestar',
+      maxCapacity: 6,
+      bookedTickets: 2,
+      reviewsCount: 40,
     ),
   ];
 
