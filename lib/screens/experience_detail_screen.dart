@@ -317,7 +317,7 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
       final newReview = Review(
         id: newReviewRef.id,
         userId: user.uid,
-        userName: _currentUserData?.name ?? 'Usuario Anónimo',
+        userName: _currentUserData?.username ?? _currentUserData?.email?.split('@')[0] ?? 'Usuario Anónimo',
         experienceId: _currentExperience.id,
         rating: _currentRating,
         comment: _commentController.text.trim(),

@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // Importa Firebase Authentication
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // Necesario para Firestore
+import '../models/user.dart'; // Asegúrate que la ruta a tu modelo AppUser es correcta
 import 'interests_screen.dart';
 import 'login_screen.dart';
 
 /// Pantalla de registro de nuevos usuarios.
-/// Permite a los usuarios crear una nueva cuenta utilizando Firebase Authentication.
+/// Permite a los usuarios crear una nueva cuenta utilizando Firebase Authentication
+/// y guarda la información básica en Firestore.
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
 
@@ -14,44 +17,65 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
+  // CAMBIO: de _nameController a _usernameController y su etiqueta
+  final _usernameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
-  bool _isLoading = false; // Nuevo estado para controlar el indicador de carga
+  bool _isLoading = false;
 
-  /// Maneja el proceso de registro de usuario con Firebase Authentication.
-  ///
-  /// Punto de complejidad:
-  /// Esta función crea una nueva cuenta de usuario en Firebase.
-  /// Es importante manejar errores como correo ya en uso, contraseña débil,
-  /// o problemas de red.
+  // Instancias de Firebase
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  /// Maneja el proceso de registro de usuario con Firebase Authentication
+  /// y crea el documento de usuario en Firestore.
   Future<void> _signUp() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isLoading = true; // Muestra el indicador de carga
-      });
-      try {
-        // Intenta crear un nuevo usuario con el correo y la contraseña.
-        UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text.trim(),
+    if (!_formKey.currentState!.validate()) {
+      return; // Si el formulario no es válido, no continuar
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // 1. Crear usuario en Firebase Authentication
+      UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+
+      User? firebaseUser = userCredential.user;
+
+      if (firebaseUser != null) {
+        // 2. Actualizar el displayName en Firebase Auth (opcional pero recomendado)
+        // Usamos el username para el displayName también
+        await firebaseUser.updateDisplayName(_usernameController.text.trim());
+
+        // 3. Crear el objeto AppUser con la información y el rol por defecto
+        AppUser newUser = AppUser(
+          uid: firebaseUser.uid,
+          email: firebaseUser.email ?? '', // Usar el email de Firebase Auth
+          username: _usernameController.text.trim(), // Usar 'username' y el _usernameController
+          role: 'user', // ROL POR DEFECTO CONSISTENTE (en minúsculas)
+          profileImageUrl: null, // Se puede dejar null o definir un avatar por defecto
+          interests: [], // Inicializar como lista vacía
+          savedExperiences: [], // Inicializar como lista vacía
+          experiencesSubmitted: 0, // Valor inicial
+          communitiesSupported: 0, // Valor inicial para nuevos campos
+          artisansMet: 0, // Valor inicial para nuevos campos
+          createdAt: DateTime.now(), // Timestamp de creación
         );
 
-        // Si el registro es exitoso, puedes acceder al usuario recién creado:
-        User? user = userCredential.user;
-        if (user != null) {
-          // TODO: Aquí es donde podrías guardar el nombre de usuario (o nombre completo)
-          // en Firestore, asociado al UID del usuario.
-          // Por ejemplo:
-          // await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-          //   'username': _nameController.text.trim(),
-          //   'email': user.email,
-          //   'createdAt': FieldValue.serverTimestamp(),
-          // });
+        // 4. Guardar el nuevo usuario en la colección 'users' de Firestore
+        // El método toMap() debe estar definido en tu modelo AppUser
+        // y debe manejar todos los campos, incluyendo los nuevos.
+        await _firestore.collection('users').doc(firebaseUser.uid).set(newUser.toMap(forCreation: true));
 
+        if (mounted) {
           _showSnackBar('¡Registro exitoso!', Colors.green);
           // Navega a la pantalla de intereses después de un registro exitoso.
           // `pushReplacement` evita que el usuario regrese a la pantalla de registro.
@@ -60,32 +84,34 @@ class _RegisterScreenState extends State<RegisterScreen> {
             MaterialPageRoute(builder: (context) => const InterestsScreen()),
           );
         }
-      } on FirebaseAuthException catch (e) {
-        // Captura excepciones específicas de Firebase Authentication.
-        String message;
-        if (e.code == 'weak-password') {
-          message = 'La contraseña es demasiado débil.';
-        } else if (e.code == 'email-already-in-use') {
-          message = 'Ya existe una cuenta con ese correo electrónico.';
-        } else if (e.code == 'invalid-email') {
-          message = 'El formato del correo electrónico es inválido.';
-        } else {
-          message = 'Error al registrarse: ${e.message}';
-        }
-        _showSnackBar(message, Colors.red); // Muestra un mensaje de error.
-      } catch (e) {
-        // Captura cualquier otra excepción inesperada.
-        _showSnackBar('Ocurrió un error inesperado: $e', Colors.red);
-      } finally {
+      }
+    } on FirebaseAuthException catch (e) {
+      String message;
+      if (e.code == 'weak-password') {
+        message = 'La contraseña es demasiado débil (mínimo 6 caracteres).';
+      } else if (e.code == 'email-already-in-use') {
+        message = 'Ya existe una cuenta con ese correo electrónico.';
+      } else if (e.code == 'invalid-email') {
+        message = 'El formato del correo electrónico es inválido.';
+      } else {
+        message = 'Error al registrarse: ${e.message}';
+        print("Error FirebaseAuth: ${e.code} - ${e.message}");
+      }
+      if (mounted) _showSnackBar(message, Colors.red);
+    } catch (e) {
+      if (mounted) _showSnackBar('Ocurrió un error inesperado: $e', Colors.red);
+      print("Error inesperado creando usuario en Firestore o similar: $e");
+    } finally {
+      if (mounted) {
         setState(() {
-          _isLoading = false; // Oculta el indicador de carga
+          _isLoading = false;
         });
       }
     }
   }
 
-  /// Muestra un SnackBar con un mensaje y un color de fondo.
   void _showSnackBar(String message, Color color) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
@@ -137,7 +163,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       child: Center(
                         child: ClipOval(
                           child: Image.asset(
-                            'assets/legado.jpg',
+                            'assets/legado.jpg', // Asegúrate que este asset exista
                             width: 60,
                             height: 60,
                             fit: BoxFit.cover,
@@ -151,9 +177,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 16),
-
                   const Center(
                     child: Text(
                       'LEGADO',
@@ -165,9 +189,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 8),
-
                   const Center(
                     child: Text(
                       'Descubre la cultura que\nno está en los mapas',
@@ -178,18 +200,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 32),
 
-                  _buildLabel('Nombre de usuario'),
+                  _buildLabel('Nombre de usuario'), // Etiqueta actualizada
                   const SizedBox(height: 8),
-                  _buildTextField(
-                    controller: _nameController,
-                    hintText: 'Ingresa tu nombre completo',
-                    icon: Icons.person_outline,
+                  _buildTextField( // Usando la misma función _buildTextField que ya tenías
+                    controller: _usernameController, // Controlador actualizado
+                    hintText: 'Ingresa tu nombre de usuario', // Hint actualizado
+                    icon: Icons.person_outline, // Icono (el original usa suffixIcon, ajustado abajo)
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return 'Por favor ingresa tu nombre';
+                        return 'Por favor ingresa tu nombre de usuario';
+                      }
+                      if (value.length < 3) {
+                        return 'El nombre de usuario debe tener al menos 3 caracteres';
                       }
                       return null;
                     },
@@ -208,7 +232,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       if (value == null || value.isEmpty) {
                         return 'Por favor ingresa tu correo';
                       }
-                      if (!value.contains('@')) {
+                      // Una regex más común para emails
+                      final emailRegex = RegExp(r"^[a-zA-Z0-9.a-zA-Z0-9.!#$%&'*+-/=?^_`{|}~]+@[a-zA-Z0-9]+\.[a-zA-Z]+$");
+                      if (!emailRegex.hasMatch(value)) {
                         return 'Ingresa un correo válido';
                       }
                       return null;
@@ -219,7 +245,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   _buildLabel('Contraseña'),
                   const SizedBox(height: 8),
-                  _buildPasswordField(
+                  _buildPasswordField( // Usando la misma función _buildPasswordField que ya tenías
                     controller: _passwordController,
                     hintText: 'Crea una contraseña',
                     obscureText: _obscurePassword,
@@ -257,12 +283,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   const SizedBox(height: 32),
 
-                  // Botón de registro.
                   SizedBox(
                     width: double.infinity,
                     height: 56,
                     child: ElevatedButton(
-                      onPressed: _isLoading ? null : _signUp, // Deshabilita el botón si está cargando
+                      onPressed: _isLoading ? null : _signUp,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF8B4513),
                         foregroundColor: Colors.white,
@@ -271,8 +296,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ),
                         elevation: 4,
                       ),
-                      child: _isLoading // Muestra un CircularProgressIndicator si está cargando
-                          ? const CircularProgressIndicator(color: Colors.white)
+                      child: _isLoading
+                          ? const SizedBox( // Para un CircularProgressIndicator más centrado y de tamaño fijo
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 3,
+                        ),
+                      )
                           : const Text(
                         'Registrarme',
                         style: TextStyle(
@@ -286,19 +318,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   const SizedBox(height: 24),
 
                   Center(
-                    child: Column(
+                    child: Row( // Usar Row para alinear "Ya tienes cuenta?" y "Inicia Sesión"
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         const Text(
                           '¿Ya tienes una cuenta? ',
                           style: TextStyle(color: Color(0xFF5D4037)),
                         ),
                         TextButton(
-                          onPressed: () {
+                          onPressed: _isLoading ? null : () { // Deshabilitar si está cargando
                             Navigator.pushReplacement(
                               context,
                               MaterialPageRoute(builder: (context) => const LoginScreen()),
                             );
                           },
+                          style: TextButton.styleFrom( // Estilos para mejor apariencia
+                            padding: const EdgeInsets.symmetric(horizontal: 4.0), // Menos padding
+                            minimumSize: const Size(50, 30), // Área táctil mínima
+                          ),
                           child: const Text(
                             'Inicia Sesión',
                             style: TextStyle(
@@ -330,6 +367,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
+  // Modificado para usar prefixIcon como lo hacías en la versión más reciente
   Widget _buildTextField({
     required TextEditingController controller,
     required String hintText,
@@ -342,22 +380,37 @@ class _RegisterScreenState extends State<RegisterScreen> {
       keyboardType: keyboardType,
       decoration: InputDecoration(
         hintText: hintText,
-        suffixIcon: Icon(icon, color: const Color(0xFF8B4513)),
+        prefixIcon: Icon(icon, color: const Color(0xFF8B4513)), // CAMBIO: prefixIcon
         filled: true,
-        fillColor: Colors.white,
+        fillColor: Colors.white.withOpacity(0.9), // Ligera transparencia
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
+          borderSide: BorderSide.none, // Sin borde por defecto
+        ),
+        enabledBorder: OutlineInputBorder( // Borde sutil cuando está habilitado
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.brown.shade200.withOpacity(0.7)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: Color(0xFFE67E22), width: 2),
         ),
+        errorBorder: OutlineInputBorder( // Borde para errores
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.red.shade600, width: 1.5),
+        ),
+        focusedErrorBorder: OutlineInputBorder( // Borde para errores cuando está enfocado
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.red.shade600, width: 2),
+        ),
+        contentPadding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 12.0),
       ),
       validator: validator,
+      autovalidateMode: AutovalidateMode.onUserInteraction, // Validar mientras el usuario escribe
     );
   }
 
+  // Modificado para que el icono de visibilidad sea consistente
   Widget _buildPasswordField({
     required TextEditingController controller,
     required String hintText,
@@ -370,31 +423,46 @@ class _RegisterScreenState extends State<RegisterScreen> {
       obscureText: obscureText,
       decoration: InputDecoration(
         hintText: hintText,
+        prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF8B4513)), // Icono de candado
         suffixIcon: IconButton(
           icon: Icon(
-            obscureText ? Icons.visibility_off : Icons.visibility,
-            color: const Color(0xFF8B4513),
+            obscureText ? Icons.visibility_off_outlined : Icons.visibility_outlined, // Iconos con borde
+            color: const Color(0xFF8B4513).withOpacity(0.7),
           ),
           onPressed: onToggleVisibility,
         ),
         filled: true,
-        fillColor: Colors.white,
+        fillColor: Colors.white.withOpacity(0.9),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.brown.shade200.withOpacity(0.7)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: Color(0xFFE67E22), width: 2),
         ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.red.shade600, width: 1.5),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.red.shade600, width: 2),
+        ),
+        contentPadding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 12.0),
       ),
       validator: validator,
+      autovalidateMode: AutovalidateMode.onUserInteraction,
     );
   }
 
   @override
   void dispose() {
-    _nameController.dispose();
+    _usernameController.dispose(); // CAMBIO: Asegurarse que es _usernameController
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
