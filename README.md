@@ -11,7 +11,7 @@ Una aplicación Flutter moderna que combina la rica herencia cultural mexicana c
 - Integracion de bd en users,experiencies,bookings,review
 - Integracion de reviews en experiencia
 - Implementacion de modelos estables de experiencies,booking,user,reviews
-- Posible ultima version para "experience_details"; Sistema de tickets, isualizacion correcta, feedback
+- Posible ultima version para "experience_details"; Sistema de tickets, visualizacion correcta, feedback
 - Buscador simple
 - Nuevos componestes, rol, img para "profile"
 
@@ -24,6 +24,7 @@ Una aplicación Flutter moderna que combina la rica herencia cultural mexicana c
 ### Cambios futuros
 - Sistema crud (Ya lo habia hecho pero lo rompi D:), revisar rama beta
 - DISEÑO (Aun no terminamos de decidirnos)
+- Revision QA
 - Implemetacion de temas
 
 ## 🎨 Características
