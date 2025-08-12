@@ -1,10 +1,19 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../models/experience.dart';
-import 'experience_detail_screen.dart';
+import '../models/experience.dart'; // Ajusta la ruta si es necesario
+import 'experience_detail_screen.dart'; // Ajusta la ruta si es necesario
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:geolocator/geolocator.dart';
+// La importación de geolocator no se usa en este archivo base, la mantenemos comentada.
+// import 'package:geolocator/geolocator.dart';
+
+// --- NUEVO: Importaciones para anuncios ---
+import 'package:flutter/foundation.dart' show kIsWeb;
+// Asegúrate de que la ruta a ad_helper.dart sea correcta desde la carpeta 'screens'
+// Si ad_helper.dart está en lib/, entonces '../ad_helper.dart' es correcto.
+import '../ad_helper.dart';
+// --- FIN NUEVO ---
+
 
 class ExploreScreen extends StatefulWidget {
   const ExploreScreen({super.key});
@@ -12,8 +21,6 @@ class ExploreScreen extends StatefulWidget {
   @override
   State<ExploreScreen> createState() => _ExploreScreenState();
 }
-
-
 
 class _ExploreScreenState extends State<ExploreScreen> {
   final Completer<GoogleMapController> _mapController = Completer();
@@ -29,8 +36,67 @@ class _ExploreScreenState extends State<ExploreScreen> {
     ),
   };
 
-  /// Obtiene una experiencia destacada de Firestore.
+  // --- NUEVO: Integración de Anuncios ---
+  final AdHelper _adHelper = AdHelper();
+  Widget? _bannerAdWidget;
+
+  // ¡¡RECUERDA USAR TUS PROPIOS IDs DE PRODUCCIÓN AL LANZAR!!
+  // Y TU ID DE EDITOR DE ADSENSE EN ad_helper_stub.dart ('ca-pub-XXXXXXXXXXXXXXX')
+  final String _adSenseAdSlotIdForExploreScreen = "9713335269"; // CAMBIA ESTE SLOT ID DE ADSENSE SI ES NECESARIO
+  final String _adMobAdUnitIdForExploreScreen = "ca-app-pub-3940256099942544/6300978111"; // ID DE PRUEBA DE ADMOB BANNER
+
+  @override
+  void initState() {
+    super.initState();
+    // Inicializa AdHelper (puede ser asíncrono si es necesario para alguna plataforma)
+    _adHelper.initialize().then((_) {
+      // Carga el banner después de que AdHelper esté inicializado
+      _loadBannerAd();
+    });
+  }
+
+  // En ExploreScreen.dart _ExploreScreenState
+
+  void _loadBannerAd() {
+    /* // Temporalmente comenta la parte web
+      if (kIsWeb) {
+        print("ExploreScreen (Web): Cargando AdSense Banner.");
+        _bannerAdWidget = _adHelper.getBannerAdWidget(adSenseAdSlotId: _adSenseAdSlotIdForExploreScreen);
+        if (mounted) {
+          setState(() {});
+        }
+      } else*/ { // Móvil
+      print("ExploreScreen (Móvil): Intentando cargar AdMob Banner.");
+      try {
+        _bannerAdWidget = _adHelper.getBannerAdWidget(
+          adMobAdUnitId: _adMobAdUnitIdForExploreScreen, // El nombre DEBE COINCIDIR
+          onAdLoaded: () {                              // El nombre DEBE COINCIDIR
+            print("ExploreScreen (Móvil): Callback de onAdLoaded recibido.");
+            if (mounted) {
+              setState(() {});
+            }
+          },
+        );
+        print("ExploreScreen (Móvil): Llamada a getBannerAdWidget (móvil) completada sin error de firma.");
+      } catch (e) {
+        print("ExploreScreen (Móvil): ERROR al llamar getBannerAdWidget (móvil): $e");
+        // Si el error es sobre la firma, se imprimirá aquí.
+      }
+      if (mounted) {
+        setState(() {});
+      }
+    }
+  }
+  @override
+  void dispose() {
+    _adHelper.disposeBannerAd(); // Limpia el anuncio
+    super.dispose();
+  }
+  // --- FIN NUEVO ---
+
+
   Future<Experience?> _getFeaturedExperience() async {
+    // ... (sin cambios)
     try {
       final querySnapshot = await FirebaseFirestore.instance
           .collection('experiences')
@@ -52,6 +118,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        // ... (sin cambios)
         title: const Text(
           'Explorar',
           style: TextStyle(
@@ -74,6 +141,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
         children: [
           // Mapa integrado
           Container(
+            // ... (sin cambios)
             height: 300,
             margin: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -120,9 +188,28 @@ class _ExploreScreenState extends State<ExploreScreen> {
             ),
           ),
 
+          // --- NUEVO: Widget del Anuncio Banner ---
+          if (_bannerAdWidget != null)
+            Container(
+              alignment: Alignment.center,
+              // La altura es gestionada por el SizedBox en ad_helper_stub (para web)
+              // o por AdSize en ad_helper_mobile.
+              margin: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 16.0),
+              child: _bannerAdWidget,
+            )
+          else
+          // Placeholder opcional mientras carga o si no hay anuncio.
+          // Para AdMob, el SizedBox.shrink() en ad_helper_mobile maneja el estado inicial.
+          // Para AdSense, el HtmlElementView se renderiza directamente.
+          // Este SizedBox es más un fallback visual si _bannerAdWidget es nulo por alguna razón.
+            const SizedBox(height: 50), // Puedes ajustar o quitar este placeholder
+          // --- FIN NUEVO ---
+
+
           // Experiencias destacadas
           Expanded(
             child: Container(
+              // ... (sin cambios)
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -163,6 +250,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   Widget _buildMapControl(IconData icon, VoidCallback onTap) {
+    // ... (sin cambios)
     return Container(
       width: 40,
       height: 40,
@@ -185,6 +273,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   Widget _buildFeaturedExperienceCard(BuildContext context, Experience experience) {
+    // ... (sin cambios)
+    // Asegúrate de que tu modelo Experience tenga los campos imageAsset, title, location, price.
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
@@ -203,16 +293,17 @@ class _ExploreScreenState extends State<ExploreScreen> {
           height: 120,
           child: Row(
             children: [
-              // Imagen de la experiencia
               SizedBox(
                 width: 120,
                 height: 120,
-                child: Image.asset(
+                child: Image.asset( // Asumiendo que experience.imageAsset es una ruta de asset local
                   experience.imageAsset,
                   fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(color: Colors.grey[300], alignment: Alignment.center, child: Icon(Icons.broken_image, color: Colors.grey[600]));
+                  },
                 ),
               ),
-              // Detalles
               Expanded(
                 child: Container(
                   color: Colors.white,
@@ -226,19 +317,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
                         children: [
                           Text(
                             experience.title,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF5D4037),
-                            ),
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF5D4037)),
+                            maxLines: 1, overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 4),
                           Text(
                             experience.location,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF8D6E63),
-                            ),
+                            style: const TextStyle(fontSize: 12, color: Color(0xFF8D6E63)),
+                            maxLines: 1, overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
@@ -247,19 +333,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
                         children: [
                           Text(
                             '\$${experience.price} MXN',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFFE67E22),
-                            ),
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFFE67E22)),
                           ),
                           ElevatedButton(
                             onPressed: () {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) =>
-                                      ExperienceDetailScreen(experience: experience),
+                                  builder: (context) => ExperienceDetailScreen(experience: experience),
                                 ),
                               );
                             },
@@ -267,14 +348,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
                               backgroundColor: const Color(0xFFE67E22),
                               foregroundColor: Colors.white,
                               minimumSize: const Size(80, 32),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             ),
-                            child: const Text(
-                              'Ver más',
-                              style: TextStyle(fontSize: 12),
-                            ),
+                            child: const Text('Ver más', style: TextStyle(fontSize: 12)),
                           ),
                         ],
                       ),

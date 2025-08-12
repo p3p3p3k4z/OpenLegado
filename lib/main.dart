@@ -6,6 +6,8 @@ import 'screens/welcome_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart'; // Este archivo se genera con `flutterfire configure`
 
+import 'ad_helper.dart';
+
 void main() async {
   // Asegura que los widgets de Flutter estén inicializados antes de usar Firebase
   WidgetsFlutterBinding.ensureInitialized();
@@ -14,6 +16,8 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  final adHelper = AdHelper();
+  await adHelper.initialize(); // Esto llamará al initialize() correcto (stub o móvil)
 
   runApp(LegadoApp());
 }
