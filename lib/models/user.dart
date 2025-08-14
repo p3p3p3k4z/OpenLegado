@@ -1,54 +1,86 @@
+// models/user.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// Clase de modelo para representar un usuario de la aplicación.
 class AppUser {
-  final String uid; // ID único del usuario
-  final String email;
-  final String? name; // Nombre del usuario, opcional
-  final String role; // Rol del usuario: 'user', 'moderator', o 'admin'
-  final String? profileImageUrl; // URL de la imagen de perfil del usuario
-  final List<String> interests; // Lista de intereses del usuario
-  final List<String> savedExperiences; // IDs de las experiencias guardadas/favoritas
-  final int experiencesSubmitted; // Cantidad de experiencias subidas por este usuario
+  final String uid;
+  final String? email;
+  final String? username;
+  final String? profileImageUrl;
+  final String role;
+  final List<String> interests;
+  final List<String> savedExperiences;
+  final int experiencesSubmitted;
+  final DateTime? createdAt;
+  final DateTime? lastLoginAt;
+  final int communitiesSupported;
+  final int artisansMet;
+  final bool isDisabled; // <--- AÑADIR CAMPO PARA SOFT DELETE
 
-  /// Constructor principal para crear una instancia de AppUser.
-  const AppUser({
+  AppUser({
     required this.uid,
-    required this.email,
-    this.name,
-    this.role = 'user',
+    this.email,
+    this.username,
     this.profileImageUrl,
-    this.interests = const [],
-    this.savedExperiences = const [],
+    this.role = 'user',
+    List<String>? interests,
+    List<String>? savedExperiences,
     this.experiencesSubmitted = 0,
-  });
+    this.createdAt,
+    this.lastLoginAt,
+    this.communitiesSupported = 0,
+    this.artisansMet = 0,
+    this.isDisabled = false, // <--- VALOR POR DEFECTO
+  })  : interests = interests ?? [],
+        savedExperiences = savedExperiences ?? [];
 
-  /// Constructor de fábrica para crear una instancia de AppUser desde un DocumentSnapshot de Firestore.
-  factory AppUser.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>?;
+  factory AppUser.fromFirestore(DocumentSnapshot<Map<String, dynamic>> snapshot) {
+    final data = snapshot.data();
+    if (data == null) throw Exception("Documento de usuario vacío para uid: ${snapshot.id}");
 
     return AppUser(
-      uid: doc.id,
-      email: data?['email'] as String? ?? '',
-      name: data?['name'] as String?,
-      role: data?['role'] as String? ?? 'user',
-      profileImageUrl: data?['profileImageUrl'] as String?,
-      interests: List<String>.from(data?['interests'] ?? []),
-      savedExperiences: List<String>.from(data?['savedExperiences'] ?? []),
-      experiencesSubmitted: (data?['experiencesSubmitted'] as num?)?.toInt() ?? 0,
+      uid: snapshot.id,
+      email: data['email'] as String?,
+      username: data['username'] as String?,
+      profileImageUrl: data['profileImageUrl'] as String?,
+      role: data['role'] as String? ?? 'user',
+      interests: List<String>.from(data['interests'] as List<dynamic>? ?? []),
+      savedExperiences: List<String>.from(data['savedExperiences'] as List<dynamic>? ?? []),
+      experiencesSubmitted: (data['experiencesSubmitted'] as num?)?.toInt() ?? 0,
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
+      lastLoginAt: (data['lastLoginAt'] as Timestamp?)?.toDate(),
+      communitiesSupported: (data['communitiesSupported'] as num?)?.toInt() ?? 0,
+      artisansMet: (data['artisansMet'] as num?)?.toInt() ?? 0,
+      isDisabled: data['isDisabled'] as bool? ?? false, // <--- LEER DESDE FIRESTORE
     );
   }
 
-  /// Método para convertir una instancia de AppUser a un mapa para subir a Firestore.
-  Map<String, dynamic> toMap() {
-    return {
+  Map<String, dynamic> toMap({bool forCreation = false}) {
+    final map = <String, dynamic>{ // Especificar el tipo del mapa
+      'uid': uid,
       'email': email,
-      'name': name,
-      'role': role,
+      'username': username,
       'profileImageUrl': profileImageUrl,
+      'role': role,
       'interests': interests,
       'savedExperiences': savedExperiences,
       'experiencesSubmitted': experiencesSubmitted,
+      'communitiesSupported': communitiesSupported,
+      'artisansMet': artisansMet,
+      'isDisabled': isDisabled, // <--- AÑADIR AL MAPA
     };
+
+    if (forCreation) {
+      map['createdAt'] = FieldValue.serverTimestamp();
+      map['lastLoginAt'] = FieldValue.serverTimestamp(); // También al crear
+    } else {
+      if (createdAt != null) {
+        map['createdAt'] = Timestamp.fromDate(createdAt!);
+      }
+      // Considera si lastLoginAt se actualiza aquí o solo en el login real
+      if (lastLoginAt != null) {
+        map['lastLoginAt'] = Timestamp.fromDate(lastLoginAt!);
+      }
+    }
+    return map;
   }
 }

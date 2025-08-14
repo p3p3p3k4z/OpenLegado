@@ -1,20 +1,63 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
+// import 'package:flutter_svg/flutter_svg.dart'; // No se usa en el código que me pasaste para main o LegadoApp
 import 'screens/welcome_screen.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 // Importaciones de Firebase añadidas
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart'; // Este archivo se genera con `flutterfire configure`
 
+// --------- IMPORTACIONES PARA ANUNCIOS ---------
+import 'config/app_config.dart'; // Para las banderas de habilitación de anuncios
+import 'package:flutter/foundation.dart' show kIsWeb; // Para detectar la plataforma
+import 'package:google_mobile_ads/google_mobile_ads.dart'; // Para AdMob
+
 void main() async {
-  // Asegura que los widgets de Flutter estén inicializados antes de usar Firebase
+  // 1. Asegura que los widgets de Flutter estén inicializados
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Inicializa Firebase con las opciones generadas para la plataforma actual
+
+  // 2. Inicializa Firebase
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  await initializeDateFormatting('es_MX', null);
+  // 3. Inicializa Servicios de Anuncios (condicionalmente)
+  //    Usaremos las banderas de tu AppConfig
+  if (AppConfig.adsEnabled) { // Asumiendo que tienes esta bandera global
+    if (kIsWeb && AppConfig.adsEnabledWeb) { // Asumiendo bandera para web
+      // Para ADSENSE (WEB):
+      // Ya has indicado que el script de AdSense está en tu web/index.html.
+      // No se requiere una llamada adicional a `initialize()` desde Flutter para AdSense.
+      print("MAIN: Anuncios Web (AdSense) están configurados. Script de AdSense se espera en web/index.html.");
+    } else if (!kIsWeb && (AppConfig.adsEnabledAndroid /* || AppConfig.adsEnabledIOS */)) {
+      // Para ADMOB (ANDROID / iOS - ajusta AppConfig.adsEnabledAndroid según tu necesidad)
+      try {
+        print("MAIN: Intentando inicializar Google Mobile Ads SDK...");
+        await MobileAds.instance.initialize();
+        print("MAIN: Google Mobile Ads SDK inicializado correctamente.");
 
+        // Opcional: Configuración para UMP (Consentimiento)
+        // MobileAds.instance.setConsentDebugSettings(
+        //   ConsentDebugSettings(
+        //     debugGeography: DebugGeography.debugGeographyEea,
+        //     testIdentifiers: ['TU_HASH_DE_DISPOSITIVO_DE_PRUEBA_UMP'],
+        //   ),
+        // );
+        // Aquí podrías invocar la lógica para solicitar/actualizar el consentimiento si usas UMP.
+
+      } catch (e) {
+        print("MAIN: Error al inicializar Google Mobile Ads SDK: $e");
+        // Considera cómo manejar este error.
+      }
+    } else if (!kIsWeb) {
+      print("MAIN: Anuncios móviles (AdMob) están deshabilitados en AppConfig para la plataforma actual.");
+    }
+  } else {
+    print("MAIN: Los anuncios están globalmente deshabilitados en AppConfig.");
+  }
+
+  // 4. Ejecuta la aplicación
   runApp(LegadoApp());
 }
 
@@ -59,69 +102,91 @@ class LegadoApp extends StatelessWidget {
           ),
         ),
       ),
-      home: WelcomeScreen(),
+
+      localizationsDelegates: [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate, // Bueno tenerlo por si usas algo de Cupertino
+      ],
+      supportedLocales: [
+        const Locale('en', ''), // Inglés, como fallback o si lo soportas
+        const Locale('es', ''), // Español genérico
+        const Locale('es', 'MX'), // Español específico para México
+        // Puedes añadir otros idiomas que tu app vaya a soportar
+      ],
+      // Opcional: Especificar el locale inicial de la app
+      // Si quieres que siempre inicie en 'es_MX' (o 'es'), descomenta y ajusta:
+      // locale: const Locale('es', 'MX'),
+      // Si no lo pones, intentará usar el idioma del dispositivo si está en supportedLocales,
+      // o el primer locale de la lista supportedLocales como fallback.
+
+
+      home: WelcomeScreen(), // Tu WelcomeScreen existente
     );
   }
 }
 
+// Tu clase HomeScreen y _buildExperienceCard permanecen exactamente como las proporcionaste.
+// Las omito aquí para brevedad, ya que no se modifican.
 class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    // ... tu código de HomeScreen ...
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          // APP BAR CON DISEÑO MEXICANO
-          SliverAppBar(
+        body: CustomScrollView(
+            slivers: [
+            // APP BAR CON DISEÑO MEXICANO
+            SliverAppBar(
             expandedHeight: 200,
             flexibleSpace: FlexibleSpaceBar(
-              background: Stack(
-                fit: StackFit.expand,
-                children: [
+                background: Stack(
+                  fit: StackFit.expand,
+                  children: [
                   // Imagen de fondo de alta calidad
                   Container(
-                    width: double.infinity,
-                    height: double.infinity,
-                    child: Image.asset(
-                      'assets/fondo_mexicano.jpg',
-                      fit: BoxFit.cover,
-                      filterQuality: FilterQuality.high,
-                      isAntiAlias: true,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                Theme.of(context).primaryColor,
-                                Theme.of(context).colorScheme.secondary,
-                              ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
+                  width: double.infinity,
+                  height: double.infinity,
+                  child: Image.asset(
+                    'assets/fondo_mexicano.jpg',
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.high,
+                    isAntiAlias: true,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Theme.of(context).primaryColor,
+                              Theme.of(context).colorScheme.secondary,
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
                           ),
-                        );
-                      },
-                    ),
+                        ),
+                      );
+                    },
                   ),
-                  Container(color: Colors.black.withOpacity(0.3)),
-                  Center(
+                ),
+                Container(color: Colors.black.withOpacity(0.3)),
+                Center(
                     child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
                         // Logo mejorado con fallback elegante
                         Container(
-                          height: 80,
-                          width: 80,
-                          decoration: BoxDecoration(
+                        height: 80,
+                        width: 80,
+                        decoration: BoxDecoration(
                             color: Colors.white.withOpacity(0.9),
                             shape: BoxShape.circle,
                             boxShadow: [
-                              BoxShadow(
-                                color: Colors.black26,
-                                blurRadius: 10,
-                                offset: Offset(0, 4),
-                              ),
+                            BoxShadow(
+                              color: Colors.black26,
+                              blurRadius: 10,
+                              offset: Offset(0, 4),
+                            ),
                             ],
-                          ),
+                        ),
                           child: Padding(
                             padding: EdgeInsets.all(8),
                             child: ClipOval(
@@ -147,164 +212,286 @@ class HomeScreen extends StatelessWidget {
                             ),
                           ),
                         ),
-                        SizedBox(height: 10),
-                        Text(
-                          'Descubre el alma de México',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontFamily: 'Georgia',
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // SECCIÓN DE EXPERIENCIAS DESTACADAS
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Experiencias Auténticas', style: Theme.of(context).textTheme.headlineMedium),
-                  SizedBox(height: 15),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        _buildExperienceCard(
-                          context,
-                          title: 'Taller de Barro Negro',
-                          location: 'San Bartolo Coyotepec, Oaxaca',
-                          price: 350,
-                          image: 'assets/barro_negro.jpg',
-                          isVerified: true,
-                        ),
-                        _buildExperienceCard(
-                          context,
-                          title: 'Cocina de Mole en Cazuela',
-                          location: 'Puebla, Puebla',
-                          price: 420,
-                          image: 'assets/mole_poblano.jpg',
-                        ),
-                        _buildExperienceCard(
-                          context,
-                          title: 'Tejido de Sarapes',
-                          location: 'Teotitlán del Valle, Oaxaca',
-                          price: 380,
-                          image: 'assets/sarapes.jpg',
-                          isVerified: true,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // MAPA CULTURAL
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Rutas del Patrimonio', style: Theme.of(context).textTheme.headlineMedium),
-                  SizedBox(height: 15),
-                  Container(
-                    height: 200,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(15),
-                      boxShadow: [
-                        BoxShadow(color: Colors.grey.withOpacity(0.3), blurRadius: 10)
-                      ],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(15),
-                      child: Stack(
-                        children: [
-                          // Imagen de fondo de alta calidad
-                          Container(
-                            width: double.infinity,
-                            height: double.infinity,
-                            child: Image.asset(
-                              'assets/mapa_cultural.jpg',
-                              fit: BoxFit.cover,
-                              filterQuality: FilterQuality.high,
-                              isAntiAlias: true,
-                              cacheWidth: 1000,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Container(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        Theme.of(context).primaryColor,
-                                        Theme.of(context).colorScheme.secondary,
-                                      ],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                                  ),
-                                  child: Center(
-                                    child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Icon(Icons.map, size: 48, color: Colors.white70),
-                                        SizedBox(height: 8),
-                                        Text(
-                                          'Mapa Cultural Interactivo',
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              },
+                          SizedBox(height: 10),
+                          Text(
+                            'Descubre el alma de México',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontFamily: 'Georgia',
+                              fontStyle: FontStyle.italic,
                             ),
                           ),
-                          // Overlay con información
-                          Positioned(
-                            bottom: 10,
-                            left: 10,
+                        ],
+                    ),
+                ),
+                  ],
+                ),
+            ),
+            ),
+
+              // SECCIÓN DE EXPERIENCIAS DESTACADAS
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Experiencias Auténticas', style: Theme.of(context).textTheme.headlineMedium),
+                      SizedBox(height: 15),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            _buildExperienceCard(
+                              context,
+                              title: 'Taller de Barro Negro',
+                              location: 'San Bartolo Coyotepec, Oaxaca',
+                              price: 350,
+                              image: 'assets/barro_negro.jpg',
+                              isVerified: true,
+                            ),
+                            _buildExperienceCard(
+                              context,
+                              title: 'Cocina de Mole en Cazuela',
+                              location: 'Puebla, Puebla',
+                              price: 420,
+                              image: 'assets/mole_poblano.jpg',
+                            ),
+                            _buildExperienceCard(
+                              context,
+                              title: 'Tejido de Sarapes',
+                              location: 'Teotitlán del Valle, Oaxaca',
+                              price: 380,
+                              image: 'assets/sarapes.jpg',
+                              isVerified: true,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // MAPA CULTURAL
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Rutas del Patrimonio', style: Theme.of(context).textTheme.headlineMedium),
+                      SizedBox(height: 15),
+                      Container(
+                        height: 200,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(15),
+                          boxShadow: [
+                            BoxShadow(color: Colors.grey.withOpacity(0.3), blurRadius: 10)
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(15),
+                          child: Stack(
+                            children: [
+                              // Imagen de fondo de alta calidad
+                              Container(
+                                width: double.infinity,
+                                height: double.infinity,
+                                child: Image.asset(
+                                  'assets/mapa_cultural.jpg',
+                                  fit: BoxFit.cover,
+                                  filterQuality: FilterQuality.high,
+                                  isAntiAlias: true,
+                                  cacheWidth: 1000,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return Container(
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            Theme.of(context).primaryColor,
+                                            Theme.of(context).colorScheme.secondary,
+                                          ],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        ),
+                                      ),
+                                      child: Center(
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(Icons.map, size: 48, color: Colors.white70),
+                                            SizedBox(height: 8),
+                                            Text(
+                                              'Mapa Cultural Interactivo',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 18,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                              // Overlay con información
+                              Positioned(
+                                bottom: 10,
+                                left: 10,
+                                child: Container(
+                                  padding: EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.9),
+                                    borderRadius: BorderRadius.circular(12),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black26,
+                                        blurRadius: 8,
+                                        offset: Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.location_on,
+                                        size: 18,
+                                        color: Theme.of(context).primaryColor,
+                                      ),
+                                      SizedBox(width: 6),
+                                      Text(
+                                        'Ruta del Mezcal Artesanal',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                          color: Color(0xFF5D4037),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: 20),
+                    ],
+                  ),
+                ),
+              ),
+
+              // IMPACTO COMUNITARIO
+              SliverToBoxAdapter(
+                child: Container(
+                  margin: EdgeInsets.all(20),
+                  padding: EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Color(0xFFFFF8DC), // Beige claro
+                        Color(0xFFF5E6D3), // Beige más oscuro
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black12,
+                        blurRadius: 15,
+                        offset: Offset(0, 5),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Tu Huella Cultural',
+                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                          color: Color(0xFF5D4037),
+                        ),
+                      ),
+                      SizedBox(height: 20),
+                      Row(
+                        children: [
+                          Expanded(
                             child: Container(
-                              padding: EdgeInsets.all(12),
+                              padding: EdgeInsets.all(16),
                               decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.9),
-                                borderRadius: BorderRadius.circular(12),
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(15),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.black26,
+                                    color: Colors.black.withOpacity(0.05),
                                     blurRadius: 8,
                                     offset: Offset(0, 2),
                                   ),
                                 ],
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
+                              child: Column(
                                 children: [
-                                  Icon(
-                                    Icons.location_on,
-                                    size: 18,
-                                    color: Theme.of(context).primaryColor,
-                                  ),
-                                  SizedBox(width: 6),
                                   Text(
-                                    'Ruta del Mezcal Artesanal',
+                                    '128',
                                     style: TextStyle(
+                                      fontSize: 36,
                                       fontWeight: FontWeight.bold,
+                                      color: Theme.of(context).primaryColor,
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Artesanos apoyados',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: Color(0xFF6D4C41),
                                       fontSize: 14,
-                                      color: Color(0xFF5D4037),
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: 16),
+                          Expanded(
+                            child: Container(
+                              padding: EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(15),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.05),
+                                    blurRadius: 8,
+                                    offset: Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Column(
+                                children: [
+                                  Text(
+                                    '\$42,380',
+                                    style: TextStyle(
+                                      fontSize: 36,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF388E3C),
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Al fondo comunitario',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: Color(0xFF6D4C41),
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
                                     ),
                                   ),
                                 ],
@@ -313,180 +500,58 @@ class HomeScreen extends StatelessWidget {
                           ),
                         ],
                       ),
-                    ),
-                  ),
-                  SizedBox(height: 20),
-                ],
-              ),
-            ),
-          ),
-
-          // IMPACTO COMUNITARIO
-          SliverToBoxAdapter(
-            child: Container(
-              margin: EdgeInsets.all(20),
-              padding: EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Color(0xFFFFF8DC), // Beige claro
-                    Color(0xFFF5E6D3), // Beige más oscuro
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black12,
-                    blurRadius: 15,
-                    offset: Offset(0, 5),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Tu Huella Cultural',
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      color: Color(0xFF5D4037),
-                    ),
-                  ),
-                  SizedBox(height: 20),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          padding: EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(15),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.05),
-                                blurRadius: 8,
-                                offset: Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            children: [
-                              Text(
-                                '128',
-                                style: TextStyle(
-                                  fontSize: 36,
-                                  fontWeight: FontWeight.bold,
-                                  color: Theme.of(context).primaryColor,
-                                ),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                'Artesanos apoyados',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: Color(0xFF6D4C41),
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
+                      SizedBox(height: 24),
+                      Container(
+                        padding: EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(15),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 8,
+                              offset: Offset(0, 2),
+                            ),
+                          ],
                         ),
-                      ),
-                      SizedBox(width: 16),
-                      Expanded(
-                        child: Container(
-                          padding: EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(15),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.05),
-                                blurRadius: 8,
-                                offset: Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            children: [
-                              Text(
-                                '\$42,380',
-                                style: TextStyle(
-                                  fontSize: 36,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF388E3C),
+                        child: Column(
+                          children: [
+                            LinearProgressIndicator(
+                              value: 0.65,
+                              backgroundColor: Colors.grey[200],
+                              valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).primaryColor),
+                              minHeight: 12,
+                              borderRadius: BorderRadius.circular(6), // Agregado para que coincida con el card
+                            ),
+                            SizedBox(height: 12),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Escuela de Artes Tradicionales',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF6D4C41),
+                                  ),
                                 ),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                'Al fondo comunitario',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: Color(0xFF6D4C41),
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
+                                Text(
+                                  '65% completado',
+                                  style: TextStyle(
+                                    color: Theme.of(context).primaryColor,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
+                              ],
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
-                  SizedBox(height: 24),
-                  Container(
-                    padding: EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(15),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 8,
-                          offset: Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      children: [
-                        LinearProgressIndicator(
-                          value: 0.65,
-                          backgroundColor: Colors.grey[200],
-                          valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).primaryColor),
-                          minHeight: 12,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Escuela de Artes Tradicionales',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF6D4C41),
-                              ),
-                            ),
-                            Text(
-                              '65% completado',
-                              style: TextStyle(
-                                color: Theme.of(context).primaryColor,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
-          ),
-        ],
-      ),
+            ],
+        ),
 
       // BARRA INFERIOR CON PATRONES MEXICANOS
       bottomNavigationBar: Container(
@@ -538,48 +603,49 @@ class HomeScreen extends StatelessWidget {
           children: [
             // IMAGEN CON SELLO DE AUTENTICIDAD
             Stack(
-              children: [                  ClipRRect(
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                child: Container(
-                  height: 180,
-                  width: double.infinity,
-                  child: Image.asset(
-                    image,
-                    fit: BoxFit.cover,
-                    filterQuality: FilterQuality.high,
-                    isAntiAlias: true,
-                    cacheWidth: 800, // Forzar carga en alta resolución
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              Theme.of(context).primaryColor.withOpacity(0.8),
-                              Theme.of(context).colorScheme.secondary.withOpacity(0.8),
-                            ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
+              children: [
+                ClipRRect( // Corrección aquí: ClipRRect estaba mal anidado
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                  child: Container(
+                    height: 180,
+                    width: double.infinity,
+                    child: Image.asset(
+                      image,
+                      fit: BoxFit.cover,
+                      filterQuality: FilterQuality.high,
+                      isAntiAlias: true,
+                      cacheWidth: 800, // Forzar carga en alta resolución
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Theme.of(context).primaryColor.withOpacity(0.8),
+                                Theme.of(context).colorScheme.secondary.withOpacity(0.8),
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
                           ),
-                        ),
-                        child: Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.image_outlined, size: 48, color: Colors.white70),
-                              SizedBox(height: 8),
-                              Text(
-                                'Imagen en alta calidad\npronto disponible',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(color: Colors.white70, fontSize: 14),
-                              ),
-                            ],
+                          child: Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.image_outlined, size: 48, color: Colors.white70),
+                                SizedBox(height: 8),
+                                Text(
+                                  'Imagen en alta calidad\npronto disponible', // Mensaje de error de imagen
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: Colors.white70, fontSize: 14),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
                 ),
-              ),
                 if (isVerified)
                   Positioned(
                     top: 12,
@@ -652,7 +718,7 @@ class HomeScreen extends StatelessWidget {
                   // PRECIO CON DESGLOSE COMUNITARIO
                   RichText(
                     text: TextSpan(
-                      style: DefaultTextStyle.of(context).style,
+                      style: DefaultTextStyle.of(context).style.copyWith(fontSize: 14), // Asegura un estilo base
                       children: [
                         TextSpan(
                           text: '\$${price} MXN',

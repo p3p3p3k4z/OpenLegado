@@ -1,5 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+// Asumimos que TicketSchedule está definido en alguna parte,
+// por ejemplo, en el mismo archivo o importado.
+// class TicketSchedule { ... } // (Definición como la discutimos antes)
+
+// Define los posibles estados para mayor claridad y evitar errores de tipeo
+enum ExperienceStatus { pending, approved, rejected, archived }
+
 /// Clase de modelo para representar una experiencia cultural en la aplicación Legado.
 class Experience {
   final String id;
@@ -15,12 +22,22 @@ class Experience {
   final double longitude;
   final String category; // Categoría de la experiencia
 
-  // Nuevos campos para la gestión y el feedback
+  // Campos existentes para la gestión y el feedback
   final bool isVerified; // Si la experiencia ha sido verificada por un admin
   final bool isFeatured; // Si la experiencia se destaca en la página principal
-  final int maxCapacity; // Cupo máximo de personas
-  final int bookedTickets; // Número de boletos ya reservados
+  final int maxCapacity; // Cupo máximo de personas (considera si se deriva de schedule)
+  final int bookedTickets; // Número de boletos ya reservados (considera si se deriva de schedule)
   final int reviewsCount; // Cantidad de comentarios
+
+  // CAMPO PARA EL HORARIO/CALENDARIO DE TICKETS (Discutido previamente)
+  final List<TicketSchedule> schedule;
+
+  // NUEVOS CAMPOS SOLICITADOS
+  final String creatorId;         // ID del usuario que creó/subió la experiencia
+  final ExperienceStatus status;  // Estado de la experiencia (pending, approved, rejected)
+  final DateTime? submittedAt;    // Fecha de envío/creación
+  final DateTime? lastUpdatedAt;  // Fecha de última actualización
+
 
   /// Constructor principal para crear una instancia de Experience.
   const Experience({
@@ -41,11 +58,41 @@ class Experience {
     this.maxCapacity = 0,
     this.bookedTickets = 0,
     this.reviewsCount = 0,
+    this.schedule = const [], // Valor por defecto para schedule
+    required this.creatorId,
+    this.status = ExperienceStatus.pending, // Valor por defecto para status
+    this.submittedAt,
+    this.lastUpdatedAt,
   });
 
   /// Constructor de fábrica para crear una instancia de Experience desde un DocumentSnapshot de Firestore.
   factory Experience.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>?;
+
+    // Parseo del schedule
+    List<TicketSchedule> parsedSchedule = [];
+    if (data?['schedule'] != null && data!['schedule'] is List) {
+      parsedSchedule = (data['schedule'] as List<dynamic>)
+          .map((item) {
+        // Asegúrate de que TicketSchedule.fromMap maneje Map<String, dynamic>
+        // Si item no es ya Map<String, dynamic>, necesitarás un cast seguro.
+        if (item is Map<String, dynamic>) {
+          return TicketSchedule.fromMap(item);
+        }
+        // Retorna un valor por defecto o maneja el error si el item no es el esperado
+        return TicketSchedule(date: DateTime.now(), capacity: 0); // O lanza un error
+      })
+          .toList();
+    }
+
+    // Parseo del status
+    ExperienceStatus currentStatus = ExperienceStatus.pending; // Valor por defecto
+    if (data?['status'] is String) {
+      currentStatus = ExperienceStatus.values.firstWhere(
+            (e) => e.toString() == 'ExperienceStatus.${data!['status']}',
+        orElse: () => ExperienceStatus.pending, // Fallback si el string no coincide
+      );
+    }
 
     return Experience(
       id: doc.id,
@@ -65,150 +112,139 @@ class Experience {
       maxCapacity: (data?['maxCapacity'] as num?)?.toInt() ?? 0,
       bookedTickets: (data?['bookedTickets'] as num?)?.toInt() ?? 0,
       reviewsCount: (data?['reviewsCount'] as num?)?.toInt() ?? 0,
+      schedule: parsedSchedule,
+      creatorId: data?['creatorId'] as String? ?? '', // Proveer un fallback o manejar error
+      status: currentStatus,
+      submittedAt: (data?['submittedAt'] as Timestamp?)?.toDate(),
+      lastUpdatedAt: (data?['lastUpdatedAt'] as Timestamp?)?.toDate(),
+    );
+  }
+
+  /// Método para convertir esta instancia de Experience a un Map para Firestore.
+  /// No incluye el 'id' porque Firestore lo maneja (especialmente para .add()).
+  /// Para .update() o .set() en un doc existente, el ID se usa para obtener la referencia al doc.
+  Map<String, dynamic> toFirestoreMap() {
+    return {
+      'title': title,
+      'description': description,
+      'imageAsset': imageAsset,
+      'location': location,
+      'rating': rating,
+      'price': price,
+      'duration': duration,
+      'highlights': highlights,
+      'latitude': latitude,
+      'longitude': longitude,
+      'category': category,
+      'isVerified': isVerified,
+      'isFeatured': isFeatured,
+      'maxCapacity': maxCapacity, // Podría ser calculado desde `schedule` al momento de guardar
+      'bookedTickets': bookedTickets, // Podría ser calculado desde `schedule` al momento de guardar
+      'reviewsCount': reviewsCount,
+      'schedule': schedule.map((s) => s.toMap()).toList(),
+      'creatorId': creatorId,
+      'status': status.toString().split('.').last, // Guarda el nombre del enum como string
+      'submittedAt': submittedAt != null ? Timestamp.fromDate(submittedAt!) : FieldValue.serverTimestamp(), // Usar serverTimestamp si es nuevo
+      'lastUpdatedAt': FieldValue.serverTimestamp(), // Siempre usa serverTimestamp para la última actualización
+    };
+  }
+
+  // (Opcional) Método copyWith para facilitar la creación de nuevas instancias con algunos campos modificados
+  Experience copyWith({
+    String? id,
+    String? title,
+    String? description,
+    String? imageAsset,
+    String? location,
+    double? rating,
+    int? price,
+    String? duration,
+    List<String>? highlights,
+    double? latitude,
+    double? longitude,
+    String? category,
+    bool? isVerified,
+    bool? isFeatured,
+    int? maxCapacity,
+    int? bookedTickets,
+    int? reviewsCount,
+    List<TicketSchedule>? schedule,
+    String? creatorId,
+    ExperienceStatus? status,
+    DateTime? submittedAt,
+    DateTime? lastUpdatedAt,
+    // No incluyas id aquí si no quieres que se pueda cambiar fácilmente con copyWith
+    // El id es generalmente inmutable una vez asignado por Firestore.
+  }) {
+    return Experience(
+      id: id ?? this.id, // O simplemente this.id si el id no debe ser copiado
+      title: title ?? this.title,
+      description: description ?? this.description,
+      imageAsset: imageAsset ?? this.imageAsset,
+      location: location ?? this.location,
+      rating: rating ?? this.rating,
+      price: price ?? this.price,
+      duration: duration ?? this.duration,
+      highlights: highlights ?? this.highlights,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      category: category ?? this.category,
+      isVerified: isVerified ?? this.isVerified,
+      isFeatured: isFeatured ?? this.isFeatured,
+      maxCapacity: maxCapacity ?? this.maxCapacity,
+      bookedTickets: bookedTickets ?? this.bookedTickets,
+      reviewsCount: reviewsCount ?? this.reviewsCount,
+      schedule: schedule ?? this.schedule,
+      creatorId: creatorId ?? this.creatorId,
+      status: status ?? this.status,
+      submittedAt: submittedAt ?? this.submittedAt,
+      lastUpdatedAt: lastUpdatedAt ?? this.lastUpdatedAt,
     );
   }
 }
 
-/// Clase con datos estáticos para experiencias.
-class ExperienceData {
-  static final List<Experience> _allExperiences = [
-    Experience(
-      id: 'exp001',
-      title: 'Taller de Barro Negro',
-      description: 'Sumérgete en el arte ancestral del barro negro de Oaxaca. Aprende las técnicas tradicionales de moldeo y bruñido para crear tu propia pieza única bajo la guía de maestros artesanos.',
-      imageAsset: 'assets/barro_negro.jpg',
-      location: 'San Bartolo Coyotepec, Oaxaca',
-      rating: 4.8,
-      price: 350,
-      duration: '3 horas',
-      isVerified: true,
-      isFeatured: true,
-      highlights: ['Materiales incluidos', 'Guía experto', 'Tu pieza de barro'],
-      latitude: 16.9602,
-      longitude: -96.6908,
-      category: 'Arte y Artesanía',
-      maxCapacity: 10,
-      bookedTickets: 5,
-      reviewsCount: 25,
-    ),
-    Experience(
-      id: 'exp002',
-      title: 'Cocina de Mole en Cazuela',
-      description: 'Descubre los secretos del mole poblano auténtico. Participa en la preparación de este platillo icónico desde la selección de ingredientes hasta su cocción lenta en cazuela de barro.',
-      imageAsset: 'assets/mole_poblano.jpg',
-      location: 'Puebla, Puebla',
-      rating: 4.9,
-      price: 420,
-      duration: '4 horas',
-      isVerified: true,
-      isFeatured: false,
-      highlights: ['Recetas tradicionales', 'Degustación', 'Libro de recetas'],
-      latitude: 19.0414,
-      longitude: -98.2063,
-      category: 'Gastronomía',
-      maxCapacity: 8,
-      bookedTickets: 8,
-      reviewsCount: 30,
-    ),
-    Experience(
-      id: 'exp003',
-      title: 'Tejido de Sarapes',
-      description: 'Conoce el arte del tejido de sarapes en Teotitlán del Valle. Aprende sobre los tintes naturales y la simbología de los diseños mientras creas un pequeño telar.',
-      imageAsset: 'assets/sarapes.jpg',
-      location: 'Teotitlán del Valle, Oaxaca',
-      rating: 4.7,
-      price: 380,
-      duration: '3.5 horas',
-      isVerified: true,
-      isFeatured: true,
-      highlights: ['Tintes naturales', 'Técnicas de telar', 'Tu propio diseño'],
-      latitude: 17.0371,
-      longitude: -96.5369,
-      category: 'Arte y Artesanía',
-      maxCapacity: 12,
-      bookedTickets: 3,
-      reviewsCount: 15,
-    ),
-    Experience(
-      id: 'exp004',
-      title: 'Ruta del Mezcal Artesanal',
-      description: 'Explora los palenques tradicionales de mezcal en Oaxaca. Aprende sobre el proceso de elaboración, desde el agave hasta la degustación.',
-      imageAsset: 'assets/mezcal.jpg',
-      location: 'Santiago Matatlán, Oaxaca',
-      rating: 4.6,
-      price: 500,
-      duration: '5 horas',
-      isVerified: false,
-      isFeatured: false,
-      highlights: ['Visita a palenque', 'Degustación guiada', 'Historia del mezcal'],
-      latitude: 16.9023,
-      longitude: -96.3845,
-      category: 'Gastronomía',
-      maxCapacity: 15,
-      bookedTickets: 12,
-      reviewsCount: 50,
-    ),
-    Experience(
-      id: 'exp005',
-      title: 'Danza de los Diablos',
-      description: 'Una inmersión en la vibrante Danza de los Diablos de Cuajinicuilapa. Conoce la historia, el vestuario y los pasos de este baile afro-mexicano.',
-      imageAsset: 'assets/danza.jpg',
-      location: 'Cuajinicuilapa, Guerrero',
-      rating: 4.5,
-      price: 250,
-      duration: '2 horas',
-      isVerified: false,
-      isFeatured: false,
-      highlights: ['Clase de danza', 'Historia cultural', 'Interacción con bailarines'],
-      latitude: 16.4468,
-      longitude: -98.4061,
-      category: 'Música y Danza',
-      maxCapacity: 20,
-      bookedTickets: 18,
-      reviewsCount: 10,
-    ),
-    Experience(
-      id: 'exp006',
-      title: 'Ceremonia de Temazcal',
-      description: 'Experimenta una antigua ceremonia de temazcal para la purificación del cuerpo y el espíritu, guiada por un chamán tradicional.',
-      imageAsset: 'assets/temazcal.jpg',
-      location: 'Tepoztlán, Morelos',
-      rating: 4.9,
-      price: 600,
-      duration: '4 horas',
-      isVerified: true,
-      isFeatured: true,
-      highlights: ['Purificación', 'Conexión espiritual', 'Guía chamánica'],
-      latitude: 18.9863,
-      longitude: -99.0963,
-      category: 'Bienestar',
-      maxCapacity: 6,
-      bookedTickets: 2,
-      reviewsCount: 40,
-    ),
-  ];
+// Asegúrate de tener la definición de TicketSchedule disponible.
+// Por ejemplo:
+// En models/experience.dart (o un archivo dedicado como models/ticket_schedule.dart e importarlo)
+class TicketSchedule {
+  final DateTime date;
+  final int capacity;
+  final int bookedTickets; // Generalmente se inicializa en 0 al crear una nueva entrada de horario
 
-  static List<Experience> getExperiencesByCategory(String category) {
-    if (category == 'Todas') {
-      return _allExperiences;
-    } else {
-      return _allExperiences.where((exp) => exp.category == category).toList();
-    }
+  TicketSchedule({
+    required this.date,
+    required this.capacity,
+    this.bookedTickets = 0, // Valor por defecto
+  });
+
+  // Métodos toMap/fromMap para Firestore si los almacenas directamente como subcolección
+  // o como parte de la lista 'schedule' en el documento Experience.
+  Map<String, dynamic> toMap() {
+    return {
+      'date': Timestamp.fromDate(date), // Guardar como Timestamp en Firestore
+      'capacity': capacity,
+      'bookedTickets': bookedTickets,
+    };
   }
 
-  static List<String> getCategories() {
-    return [
-      'Todas',
-      'Gastronomía',
-      'Arte y Artesanía',
-      'Patrimonio',
-      'Naturaleza y Aventura',
-      'Música y Danza',
-      'Bienestar',
-    ];
+  factory TicketSchedule.fromMap(Map<String, dynamic> map) {
+    return TicketSchedule(
+      date: (map['date'] as Timestamp).toDate(), // Leer como Timestamp desde Firestore
+      capacity: map['capacity'] as int,
+      bookedTickets: map['bookedTickets'] as int? ?? 0,
+    );
   }
 
-  static List<Experience> getFeaturedExperiences() {
-    return _allExperiences.where((exp) => exp.isFeatured).toList();
+  // Es útil tener un copyWith si necesitas modificar instancias
+  TicketSchedule copyWith({
+    DateTime? date,
+    int? capacity,
+    int? bookedTickets,
+  }) {
+    return TicketSchedule(
+      date: date ?? this.date,
+      capacity: capacity ?? this.capacity,
+      bookedTickets: bookedTickets ?? this.bookedTickets,
+    );
   }
 }

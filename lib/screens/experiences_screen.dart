@@ -66,13 +66,27 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
     query = query.orderBy('title', descending: false);
 
     return query.snapshots().map((snapshot) {
-      // Mapeo inicial desde Firestore
       List<Experience> experiences = snapshot.docs
           .map((doc) => Experience.fromFirestore(doc))
+      // --- MODIFICACIÓN AQUÍ: Filtrado en el cliente ---
+          .where((experience) {
+        // Asumimos que tu Experience.fromFirestore maneja el caso donde 'status'
+        // no está en el doc.data() y le asigna un valor por defecto o null.
+        // Si experience.status es null (o un valor por defecto que indique "no seteado"),
+        // entonces la experiencia pasa.
+        // Si experience.status tiene un valor, debe ser diferente de ExperienceStatus.rejected.
+
+        // Primero, verifica cómo tu modelo `Experience` maneja un campo 'status' ausente.
+        // Si `experience.status` puede ser `null` cuando el campo no existe:
+        if (experience.status == null) {
+          return true; // Pasa si el estado no está definido en el documento
+        }
+        // Si tiene estado, verifica que no sea rejected.
+        // Asegúrate que tu enum ExperienceStatus y el string "rejected" coincidan.
+        return experience.status != ExperienceStatus.rejected;
+      })
           .toList();
 
-      // El filtrado por nombre se aplicará en el builder del StreamBuilder
-      // para que el StreamBuilder reaccione a cambios en _searchQuery.
       return experiences;
     });
   }

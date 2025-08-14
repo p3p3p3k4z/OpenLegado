@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-// import 'package:geolocator/geolocator.dart'; // Descomentar si se usa para algo más
+import 'package:intl/intl.dart'; // Para formatear fechas y horas
+import 'package:intl/date_symbol_data_local.dart'; // Para inicializar formatos locales
 
 // Importa los modelos de datos modularizados
 import '../models/experience.dart';
@@ -30,6 +31,7 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
 
   // Estado y lógica para la reserva
   int _selectedTickets = 1;
+  TicketSchedule? _selectedSchedule; // Horario seleccionado
 
   // Mapa
   final Completer<GoogleMapController> _mapController = Completer();
@@ -41,62 +43,91 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
   List<Review> _reviews = [];
   bool _isLoadingReviews = true;
   final TextEditingController _commentController = TextEditingController();
-  double _currentRating = 0.0; // 0.0 indica sin calificar, se usan estrellas de 1 a 5
-  AppUser? _currentUserData; // Para obtener el nombre del usuario al comentar
+  double _currentRating = 0.0;
+  AppUser? _currentUserData;
   bool _isSubmittingReview = false;
 
-  // Para refrescar los datos de la experiencia (rating, bookedTickets, etc.)
+  // Para refrescar los datos de la experiencia
   late Experience _currentExperience;
 
 
   @override
+  @override
   void initState() {
     super.initState();
-    _currentExperience = widget.experience; // Inicializar con la experiencia pasada
+    // Asegúrate de inicializar los datos de formato para tu locale si aún no lo has hecho globalmente
+    // Es buena práctica hacerlo en el main.dart, pero si no, aquí también funciona.
+    initializeDateFormatting('es_MX', null).then((_) {
+      // Una vez inicializado, puedes reconstruir el widget si es necesario
+      // o simplemente confiar en que estará listo cuando se use DateFormat.
+      if (mounted) {
+        setState(() {
+          // Esto es solo para forzar una reconstrucción si los formatos dependen de la inicialización
+          // y el widget se construyó antes de que la inicialización completara.
+          // En la mayoría de los casos, si la inicialización es rápida, no se notará.
+        });
+      }
+    });
+
+    _currentExperience = widget.experience;
+    _initializeDefaultSchedule();
     _checkIfFavorite();
     _initMap();
-    _fetchUserData(); // Cargar datos del usuario para el nombre al comentar
-    _fetchReviews();  // Cargar las reseñas de la experiencia
+    _fetchUserData();
+    _fetchReviews();
   }
 
   @override
   void dispose() {
-    _commentController.dispose(); // Liberar el controlador de texto
+    _commentController.dispose();
     super.dispose();
+  }
+
+  /// Inicializa el schedule por defecto si hay alguno disponible.
+  void _initializeDefaultSchedule() {
+    if (_currentExperience.schedule.isNotEmpty) {
+      TicketSchedule? firstAvailableSchedule;
+      try {
+        firstAvailableSchedule = _currentExperience.schedule.firstWhere(
+              (s) => s.capacity - s.bookedTickets > 0,
+        );
+      } catch (e) {
+        // No se encontró ningún schedule con capacidad disponible
+        firstAvailableSchedule = null;
+      }
+
+      if (firstAvailableSchedule != null) {
+        _selectedSchedule = firstAvailableSchedule;
+      } else {
+        // Si no hay ninguno disponible, pero la lista de schedules no está vacía,
+        // puedes optar por seleccionar el primero (y la UI lo mostrará como agotado)
+        // o dejar _selectedSchedule como null.
+        // Aquí seleccionamos el primero si existe, para que el dropdown muestre algo.
+        _selectedSchedule = _currentExperience.schedule.first; // O null si prefieres
+      }
+      _selectedTickets = 1; // Resetea a 1 boleto
+    } else {
+      _selectedSchedule = null;
+      // Si no hay schedules, la lógica de maxCapacity y bookedTickets de la experiencia principal se usa.
+      _selectedTickets = 1;
+    }
   }
 
   /// Inicializa la posición del mapa y el marcador.
   void _initMap() {
     if (_currentExperience.latitude == 0.0 && _currentExperience.longitude == 0.0) {
-      if (mounted) {
-        setState(() {
-          _isMapLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isMapLoading = false);
       print("Advertencia: Coordenadas de la experiencia no válidas para el mapa.");
       return;
     }
-    final latLng =
-    LatLng(_currentExperience.latitude, _currentExperience.longitude);
-
-    _cameraPosition = CameraPosition(
-      target: latLng,
-      zoom: 15,
-    );
-
+    final latLng = LatLng(_currentExperience.latitude, _currentExperience.longitude);
+    _cameraPosition = CameraPosition(target: latLng, zoom: 15);
     _experienceMarker = Marker(
       markerId: MarkerId(_currentExperience.id),
       position: latLng,
-      infoWindow: InfoWindow(
-        title: _currentExperience.title,
-        snippet: _currentExperience.location,
-      ),
+      infoWindow: InfoWindow(title: _currentExperience.title, snippet: _currentExperience.location),
     );
-    if (mounted) {
-      setState(() {
-        _isMapLoading = false;
-      });
-    }
+    if (mounted) setState(() => _isMapLoading = false);
   }
 
   /// Refresca los datos de la experiencia desde Firestore.
@@ -104,70 +135,94 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
     try {
       final docSnapshot = await FirebaseFirestore.instance
           .collection('experiences')
-          .doc(widget.experience.id) // Usar widget.experience.id para asegurar que es el original
+          .doc(widget.experience.id)
           .get();
       if (docSnapshot.exists && mounted) {
         setState(() {
           _currentExperience = Experience.fromFirestore(docSnapshot);
+          // Re-evaluar el schedule seleccionado si la experiencia se actualiza
+          if (_currentExperience.schedule.isNotEmpty) {
+            if (_selectedSchedule != null) {
+              // Intenta encontrar el mismo schedule (por fecha) en la lista actualizada
+              TicketSchedule? updatedSelectedSchedule;
+              try {
+                updatedSelectedSchedule = _currentExperience.schedule.firstWhere(
+                      (s) => s.date.isAtSameMomentAs(_selectedSchedule!.date) && s.capacity == _selectedSchedule!.capacity,
+                );
+              } catch (e) {
+                updatedSelectedSchedule = null; // No se encontró el schedule anterior
+              }
+
+
+              if (updatedSelectedSchedule != null) {
+                _selectedSchedule = updatedSelectedSchedule;
+                final maxTicketsForSelected = updatedSelectedSchedule.capacity - updatedSelectedSchedule.bookedTickets;
+                if (_selectedTickets > maxTicketsForSelected && maxTicketsForSelected > 0) {
+                  _selectedTickets = maxTicketsForSelected;
+                } else if (maxTicketsForSelected <= 0) {
+                  // Si el schedule actual se llenó, intenta encontrar otro o inicializar
+                  _selectedTickets = 1; // resetea
+                  _initializeDefaultSchedule(); // Busca un nuevo schedule disponible
+                }
+              } else {
+                // El schedule previamente seleccionado ya no existe o cambió significativamente
+                _initializeDefaultSchedule(); // Re-inicializa al primer schedule disponible
+              }
+            } else {
+              _initializeDefaultSchedule(); // Si no había ninguno seleccionado, inicializa
+            }
+          } else {
+            // Lógica para experiencias sin schedule (legacy o configuración diferente)
+            _selectedSchedule = null;
+            final availableLegacy = _currentExperience.maxCapacity - _currentExperience.bookedTickets;
+            if (_currentExperience.maxCapacity > 0 && _selectedTickets > availableLegacy && availableLegacy > 0) {
+              _selectedTickets = availableLegacy;
+            } else if (availableLegacy <= 0 && _currentExperience.maxCapacity > 0) {
+              _selectedTickets = 1; // O manejar como agotado si no hay schedules y maxCapacity>0
+            }
+          }
         });
       }
     } catch (e) {
       print("Error al refrescar datos de la experiencia: $e");
-      if(mounted) {
-        _showSnackBar("No se pudieron actualizar los datos de la experiencia.", Colors.orange);
-      }
+      if(mounted) _showSnackBar("No se pudieron actualizar los datos.", Colors.orange);
     }
   }
 
-  /// Obtiene los datos del usuario actual (nombre) para las reseñas.
+
+  /// Obtiene los datos del usuario actual.
   Future<void> _fetchUserData() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-
     try {
-      final userDoc =
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       if (userDoc.exists && mounted) {
-        setState(() {
-          _currentUserData = AppUser.fromFirestore(userDoc);
-        });
+        setState(() => _currentUserData = AppUser.fromFirestore(userDoc));
       }
     } catch (e) {
       print('Error al obtener datos del usuario: $e');
     }
   }
 
-  /// Obtiene las reseñas para la experiencia actual.
+  /// Obtiene las reseñas.
   Future<void> _fetchReviews() async {
     if (!mounted) return;
-    setState(() {
-      _isLoadingReviews = true;
-    });
+    setState(() => _isLoadingReviews = true);
     try {
       final querySnapshot = await FirebaseFirestore.instance
           .collection('reviews')
           .where('experienceId', isEqualTo: _currentExperience.id)
           .orderBy('createdAt', descending: true)
           .get();
-
       if (mounted) {
-        final reviews =
-        querySnapshot.docs.map((doc) => Review.fromFirestore(doc)).toList();
-        setState(() {
-          _reviews = reviews;
-        });
+        final reviews = querySnapshot.docs.map((doc) => Review.fromFirestore(doc)).toList();
+        setState(() => _reviews = reviews);
       }
     } catch (e) {
       print('Error al cargar reseñas: $e');
-      if (mounted) {
-        _showSnackBar('Error al cargar reseñas.', Colors.red);
-      }
+      if (mounted) _showSnackBar('Error al cargar reseñas.', Colors.red);
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoadingReviews = false;
-        });
-      }
+      if (mounted) setState(() => _isLoadingReviews = false);
     }
   }
 
@@ -175,61 +230,48 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
   Future<void> _checkIfFavorite() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-
     if (!mounted) return;
-    setState(() { _isLoadingFavorite = true; });
-
+    setState(() => _isLoadingFavorite = true);
     try {
-      final userDoc =
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       if (userDoc.exists && mounted) {
         final userData = AppUser.fromFirestore(userDoc);
-        setState(() {
-          _isFavorite =
-              userData.savedExperiences.contains(_currentExperience.id);
-        });
+        setState(() => _isFavorite = userData.savedExperiences.contains(_currentExperience.id));
       }
     } catch (e) {
       print('Error al verificar favoritos: $e');
     } finally {
-      if (mounted) { setState(() { _isLoadingFavorite = false; }); }
+      if (mounted) setState(() => _isLoadingFavorite = false);
     }
   }
 
-  /// Alterna el estado de favorito de la experiencia.
+  /// Alterna el estado de favorito.
   Future<void> _toggleFavorite() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      _showSnackBar('Debe iniciar sesión para guardar experiencias.', Colors.amber);
+      _showSnackBar('Debe iniciar sesión para guardar.', Colors.amber);
       return;
     }
-
     if (!mounted) return;
-    setState(() { _isLoadingFavorite = true; });
-
-    final userDocRef =
-    FirebaseFirestore.instance.collection('users').doc(user.uid);
+    setState(() => _isLoadingFavorite = true);
+    final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
     try {
       if (_isFavorite) {
-        await userDocRef.update({
-          'savedExperiences': FieldValue.arrayRemove([_currentExperience.id]),
-        });
-        if (mounted) _showSnackBar('Experiencia eliminada de favoritos.', Colors.orange);
+        await userDocRef.update({'savedExperiences': FieldValue.arrayRemove([_currentExperience.id])});
+        if (mounted) _showSnackBar('Eliminada de favoritos.', Colors.orange);
       } else {
-        await userDocRef.update({
-          'savedExperiences': FieldValue.arrayUnion([_currentExperience.id]),
-        });
-        if (mounted) _showSnackBar('Experiencia guardada en favoritos.', Colors.green);
+        await userDocRef.update({'savedExperiences': FieldValue.arrayUnion([_currentExperience.id])});
+        if (mounted) _showSnackBar('Guardada en favoritos.', Colors.green);
       }
-      if (mounted) { setState(() { _isFavorite = !_isFavorite; }); }
+      if (mounted) setState(() => _isFavorite = !_isFavorite);
     } catch (e) {
-      if (mounted) _showSnackBar('Error al actualizar favoritos: ${e.toString()}', Colors.red);
+      if (mounted) _showSnackBar('Error al actualizar favoritos.', Colors.red);
     } finally {
-      if (mounted) { setState(() { _isLoadingFavorite = false; }); }
+      if (mounted) setState(() => _isLoadingFavorite = false);
     }
   }
 
-  /// Realiza la reserva de boletos.
+  /// Realiza la reserva de boletos (adaptado para schedules).
   Future<void> _bookExperience() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -237,14 +279,18 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
       return;
     }
 
-    if (_currentExperience.maxCapacity > 0 && _selectedTickets <= 0) {
+    // Si hay schedules, se debe seleccionar uno
+    if (_currentExperience.schedule.isNotEmpty && _selectedSchedule == null) {
+      _showSnackBar('Por favor, selecciona un horario.', Colors.red);
+      return;
+    }
+
+    if (_selectedTickets <= 0) {
       _showSnackBar('Debe seleccionar al menos un boleto.', Colors.red);
       return;
     }
 
-    final experienceRef = FirebaseFirestore.instance
-        .collection('experiences')
-        .doc(_currentExperience.id);
+    final experienceRef = FirebaseFirestore.instance.collection('experiences').doc(_currentExperience.id);
     final bookingsRef = FirebaseFirestore.instance.collection('bookings');
 
     if (mounted) _showSnackBar('Procesando reserva...', Colors.blue);
@@ -255,16 +301,43 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
         final experienceSnapshot = await transaction.get(experienceRef);
         if (!experienceSnapshot.exists) throw 'La experiencia ya no está disponible.';
 
-        final currentExperienceData = Experience.fromFirestore(experienceSnapshot);
+        final Experience currentExperienceData = Experience.fromFirestore(experienceSnapshot);
+        TicketSchedule? targetScheduleData; // El schedule específico que se está reservando
 
-        if (currentExperienceData.maxCapacity > 0) {
-          final availableTickets =
-              currentExperienceData.maxCapacity - currentExperienceData.bookedTickets;
-          if (_selectedTickets > availableTickets) {
-            throw 'No hay suficientes boletos disponibles. Quedan $availableTickets.';
+        if (currentExperienceData.schedule.isNotEmpty) {
+          // Si hay horarios, validar contra el schedule seleccionado
+          if (_selectedSchedule == null) throw 'Error interno: No se seleccionó un horario.';
+
+          targetScheduleData = currentExperienceData.schedule.firstWhere(
+                (s) => s.date.isAtSameMomentAs(_selectedSchedule!.date) && s.capacity == _selectedSchedule!.capacity, // Asegurar que es el mismo
+            orElse: () => throw 'El horario seleccionado ya no está disponible o ha cambiado.',
+          );
+
+          final availableTicketsInSchedule = targetScheduleData.capacity - targetScheduleData.bookedTickets;
+          if (_selectedTickets > availableTicketsInSchedule) {
+            throw 'No hay suficientes boletos para este horario. Disponibles: $availableTicketsInSchedule.';
           }
-          final newBookedTickets = currentExperienceData.bookedTickets + _selectedTickets;
-          transaction.update(experienceRef, {'bookedTickets': newBookedTickets});
+
+          // Actualizar bookedTickets en la copia local del schedule dentro de la lista
+          final updatedScheduleList = List<Map<String, dynamic>>.from(currentExperienceData.schedule.map((s) => s.toMap()));
+          final scheduleIndex = updatedScheduleList.indexWhere((sMap) => (sMap['date'] as Timestamp).toDate().isAtSameMomentAs(targetScheduleData!.date));
+
+          if (scheduleIndex != -1) {
+            updatedScheduleList[scheduleIndex]['bookedTickets'] = targetScheduleData.bookedTickets + _selectedTickets;
+            transaction.update(experienceRef, {'schedule': updatedScheduleList});
+          } else {
+            throw 'Error al actualizar el horario en la base de datos.';
+          }
+        } else {
+          // Lógica legacy si no hay schedules (usa maxCapacity de la experiencia)
+          if (currentExperienceData.maxCapacity > 0) {
+            final availableTickets = currentExperienceData.maxCapacity - currentExperienceData.bookedTickets;
+            if (_selectedTickets > availableTickets) {
+              throw 'No hay suficientes boletos disponibles. Quedan $availableTickets.';
+            }
+            final newBookedTickets = currentExperienceData.bookedTickets + _selectedTickets;
+            transaction.update(experienceRef, {'bookedTickets': newBookedTickets});
+          }
         }
 
         final newBookingRef = bookingsRef.doc();
@@ -275,25 +348,33 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
           experienceId: _currentExperience.id,
           experienceTitle: _currentExperience.title,
           experienceImage: _currentExperience.imageAsset,
-          numberOfPeople: _currentExperience.maxCapacity > 0 ? _selectedTickets : 0,
-          bookingDate: DateTime.now(),
+          numberOfPeople: _selectedTickets,
+          bookingDate: DateTime.now(), // Fecha de creación de la reserva
           status: 'confirmed',
           createdAt: DateTime.now(),
+          // Campos nuevos para el booking
+          scheduleDate: _selectedSchedule?.date, // Fecha del schedule reservado
+          ticketPrice: _currentExperience.price.toDouble(), // Precio por boleto
+          totalAmount: _currentExperience.price.toDouble() * _selectedTickets, // Monto total
         );
         transaction.set(newBookingRef, newBooking.toMap());
       });
 
       if (mounted) {
-        _showSnackBar('Reserva exitosa para ${_currentExperience.maxCapacity > 0 ? "$_selectedTickets boleto(s)" : "la experiencia"}.', Colors.green);
-        setState(() { _selectedTickets = 1; });
-        await _refreshExperienceData();
+        _showSnackBar('Reserva exitosa para $_selectedTickets boleto(s).', Colors.green);
+        setState(() {
+          _selectedTickets = 1; // Resetear
+          // No necesitamos re-inicializar el schedule aquí, _refreshExperienceData lo hará
+        });
+        await _refreshExperienceData(); // Actualizará _currentExperience con los nuevos bookedTickets
       }
     } catch (error) {
       if (mounted) _showSnackBar('Error en la reserva: ${error.toString()}', Colors.red);
     }
   }
 
-  /// Envía una nueva reseña a Firestore y actualiza el rating de la experiencia.
+
+  /// Envía una nueva reseña.
   Future<void> _submitReview() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || _currentUserData == null) {
@@ -305,19 +386,19 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
       return;
     }
     if (_currentRating == 0.0) {
-      _showSnackBar('Por favor, selecciona una calificación (1-5 estrellas).', Colors.red);
+      _showSnackBar('Por favor, selecciona una calificación.', Colors.red);
       return;
     }
 
     if (!mounted) return;
-    setState(() { _isSubmittingReview = true; });
+    setState(() => _isSubmittingReview = true);
 
     try {
       final newReviewRef = FirebaseFirestore.instance.collection('reviews').doc();
       final newReview = Review(
         id: newReviewRef.id,
         userId: user.uid,
-        userName: _currentUserData?.name ?? 'Usuario Anónimo',
+        userName: _currentUserData?.username ?? _currentUserData?.email?.split('@')[0] ?? 'Anónimo',
         experienceId: _currentExperience.id,
         rating: _currentRating,
         comment: _commentController.text.trim(),
@@ -325,20 +406,15 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
       );
       await newReviewRef.set(newReview.toMap());
 
-      final experienceRef = FirebaseFirestore.instance
-          .collection('experiences')
-          .doc(_currentExperience.id);
-
+      final experienceRef = FirebaseFirestore.instance.collection('experiences').doc(_currentExperience.id);
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final freshSnapshot = await transaction.get(experienceRef);
         if (!freshSnapshot.exists) throw 'La experiencia no fue encontrada.';
-
         final freshExperience = Experience.fromFirestore(freshSnapshot);
         final currentTotalRatingPoints = freshExperience.rating * freshExperience.reviewsCount;
         final newTotalRatingPoints = currentTotalRatingPoints + _currentRating;
         final newTotalReviews = freshExperience.reviewsCount + 1;
         final newAverageRating = newTotalReviews > 0 ? newTotalRatingPoints / newTotalReviews : 0.0;
-
         transaction.update(experienceRef, {
           'reviewsCount': newTotalReviews,
           'rating': double.parse(newAverageRating.toStringAsFixed(1)),
@@ -346,21 +422,20 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
       });
 
       if (mounted) {
-        _showSnackBar('Reseña enviada con éxito.', Colors.green);
+        _showSnackBar('Reseña enviada.', Colors.green);
         _commentController.clear();
-        setState(() { _currentRating = 0.0; });
+        setState(() => _currentRating = 0.0);
         await _refreshExperienceData();
         _fetchReviews();
       }
     } catch (e) {
       print('Error al enviar reseña: $e');
-      if (mounted) _showSnackBar('Error al enviar la reseña: ${e.toString()}', Colors.red);
+      if (mounted) _showSnackBar('Error al enviar la reseña.', Colors.red);
     } finally {
-      if (mounted) { setState(() { _isSubmittingReview = false; }); }
+      if (mounted) setState(() => _isSubmittingReview = false);
     }
   }
 
-  /// Muestra una Snackbar.
   void _showSnackBar(String message, Color color) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -369,14 +444,39 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
         backgroundColor: color,
         duration: const Duration(seconds: 3),
         behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.all(10),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final availableTickets = _currentExperience.maxCapacity - _currentExperience.bookedTickets;
-    final isFullyBooked = _currentExperience.maxCapacity > 0 && availableTickets <= 0;
+    // Determinar disponibilidad basada en si hay schedules o no
+    int availableTickets = 0;
+    bool isFullyBooked = true;
+    String ticketsInfoText = 'No requiere reserva'; // Default
+
+    if (_currentExperience.schedule.isNotEmpty) {
+      if (_selectedSchedule != null) {
+        availableTickets = _selectedSchedule!.capacity - _selectedSchedule!.bookedTickets;
+        isFullyBooked = availableTickets <= 0;
+        ticketsInfoText = isFullyBooked ? 'Agotados (este horario)' : 'Disponibles: $availableTickets';
+      } else {
+        // Si hay schedules pero ninguno está seleccionado (o no hay disponibles)
+        ticketsInfoText = 'Selecciona un horario';
+        isFullyBooked = true; // Considerar no reservable hasta que se seleccione horario
+        availableTickets = 0;
+      }
+    } else {
+      // Lógica legacy sin schedules
+      if (_currentExperience.maxCapacity > 0) {
+        availableTickets = _currentExperience.maxCapacity - _currentExperience.bookedTickets;
+        isFullyBooked = availableTickets <= 0;
+        ticketsInfoText = isFullyBooked ? 'Agotados' : 'Disponibles: $availableTickets';
+      }
+    }
+
 
     return Scaffold(
       body: RefreshIndicator(
@@ -410,9 +510,14 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
                     const SizedBox(height: 12),
                     _buildMapSection(),
                     const SizedBox(height: 24),
+                    // SECCIÓN DE RESERVA MEJORADA
                     const Text('Reserva tu Experiencia', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF5D4037))),
                     const SizedBox(height: 16),
-                    _buildBookingControls(availableTickets, isFullyBooked),
+                    if (_currentExperience.schedule.isNotEmpty) ...[
+                      _buildScheduleSelector(),
+                      const SizedBox(height: 16),
+                    ],
+                    _buildBookingControls(availableTickets, isFullyBooked, ticketsInfoText),
                     const SizedBox(height: 32),
                     _buildReviewsSectionHeader(),
                     const SizedBox(height: 16),
@@ -429,8 +534,7 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
     );
   }
 
-  // --- Widgets de la UI ---
-
+  // --- Widgets de la UI (SliverAppBar, Title, Highlights, Price, InfoCard, Map sin cambios significativos) ---
   Widget _buildSliverAppBar() {
     return SliverAppBar(
       expandedHeight: 280,
@@ -562,7 +666,8 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
         _buildInfoCard(
           icon: Icons.local_offer_rounded,
           label: 'Precio',
-          value: _currentExperience.price > 0 ? '\$${_currentExperience.price.toStringAsFixed(2)} MXN' : 'Gratis',
+          // El precio ahora es por boleto, y podría variar por schedule si se implementa
+          value: _currentExperience.price > 0 ? '\$${_currentExperience.price.toStringAsFixed(0)} MXN' : 'Gratis',
           iconColor: Colors.green[700]!,
         ),
       ],
@@ -631,7 +736,7 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
             if (!_mapController.isCompleted && mounted) { _mapController.complete(controller); }
           },
           myLocationButtonEnabled: true,
-          myLocationEnabled: false, // Por defecto false, requiere permisos y puede ser confuso
+          myLocationEnabled: false,
           zoomControlsEnabled: true,
           mapToolbarEnabled: true,
           compassEnabled: true,
@@ -640,9 +745,121 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
     );
   }
 
-  Widget _buildBookingControls(int availableTickets, bool isFullyBooked) {
-    bool canBook = FirebaseAuth.instance.currentUser != null &&
-        (_currentExperience.maxCapacity == 0 || (!isFullyBooked && _selectedTickets > 0 && _selectedTickets <= availableTickets));
+  // --- NUEVO WIDGET: Selector de Horarios ---
+  Widget _buildScheduleSelector() {
+    if (_currentExperience.schedule.isEmpty) {
+      return const SizedBox.shrink(); // No mostrar nada si no hay horarios
+    }
+
+    // Ordenar los schedules por fecha y hora para que aparezcan cronológicamente en el dropdown
+    // Es una buena práctica hacerlo aquí, aunque ya deberían venir ordenados de Firestore si así los guardas.
+    final List<TicketSchedule> sortedSchedules = List.from(_currentExperience.schedule);
+    sortedSchedules.sort((a, b) => a.date.compareTo(b.date));
+
+
+    // No es necesario filtrar aquí los 'availableSchedules' para el Dropdown,
+    // ya que el DropdownMenuItem maneja el estado 'enabled' y visual.
+    // Mostrar todos permite al usuario ver incluso los agotados.
+
+    if (sortedSchedules.isEmpty && _selectedSchedule == null) { // Aunque el if de arriba ya lo cubre.
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0),
+        child: Text(
+          "No hay horarios disponibles en este momento.",
+          style: TextStyle(color: Colors.orange.shade700, fontStyle: FontStyle.italic),
+        ),
+      );
+    }
+
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Selecciona un Horario:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF5D4037))),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<TicketSchedule>(
+          value: _selectedSchedule, // El schedule actualmente seleccionado
+          isExpanded: true,
+          decoration: InputDecoration(
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            filled: true,
+            fillColor: Colors.white,
+          ),
+          hint: const Text('Elige fecha y hora'),
+          // Usar los schedules ordenados
+          items: sortedSchedules
+              .map<DropdownMenuItem<TicketSchedule>>((TicketSchedule scheduleItem) {
+            final int ticketsLeft = scheduleItem.capacity - scheduleItem.bookedTickets;
+            final bool isAvailable = ticketsLeft > 0;
+
+            // ***** CAMBIO PRINCIPAL AQUÍ *****
+            // Formatear la fecha para incluir la hora. Usa tu locale 'es_MX'.
+            final String formattedDateTime =
+            DateFormat('EEEE, d MMM, hh:mm a', 'es_MX').format(scheduleItem.date);
+            // Alternativa 24h: DateFormat('EEEE, d MMM, HH:mm', 'es_MX')
+
+            return DropdownMenuItem<TicketSchedule>(
+              value: scheduleItem,
+              enabled: isAvailable, // Deshabilitar si no hay boletos
+              child: Text(
+                '$formattedDateTime (${isAvailable ? "$ticketsLeft disp." : "Agotado"})',
+                style: TextStyle(
+                  color: isAvailable ? Colors.black87 : Colors.grey,
+                  // Tachar si no está disponible, pero no si es el actualmente seleccionado
+                  // (para que el usuario vea su selección incluso si se agota mientras mira)
+                  decoration: (!isAvailable && scheduleItem != _selectedSchedule)
+                      ? TextDecoration.lineThrough
+                      : null,
+                ),
+              ),
+            );
+          }).toList(),
+          onChanged: (TicketSchedule? newValue) {
+            // Solo permitir cambiar si el nuevo valor es diferente y está disponible
+            // (aunque el 'enabled' del DropdownMenuItem ya debería prevenir la selección de deshabilitados)
+            if (newValue != null && (newValue.capacity - newValue.bookedTickets > 0)) {
+              setState(() {
+                _selectedSchedule = newValue;
+                _selectedTickets = 1; // Resetear al cambiar de horario
+              });
+            } else if (newValue != null && !(newValue.capacity - newValue.bookedTickets > 0)) {
+              // Si intentan seleccionar uno agotado (aunque no debería ser posible por 'enabled')
+              _showSnackBar("Este horario está agotado.", Colors.orange);
+            }
+          },
+          // Validar que se haya seleccionado un horario si hay schedules
+          validator: (value) {
+            if (_currentExperience.schedule.isNotEmpty && value == null) {
+              return 'Por favor, selecciona un horario.';
+            }
+            return null;
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBookingControls(int availableTicketsForSelection, bool isSelectionFullyBooked, String ticketsInfoText) {
+    bool canAttemptBook = FirebaseAuth.instance.currentUser != null;
+    bool canFinalizeBook = false;
+
+    if (_currentExperience.schedule.isNotEmpty) {
+      // Si hay schedules, la reserva depende de haber seleccionado uno disponible
+      canFinalizeBook = canAttemptBook &&
+          _selectedSchedule != null &&
+          !isSelectionFullyBooked && // isSelectionFullyBooked se refiere al _selectedSchedule
+           _selectedTickets > 0 &&
+          _selectedTickets <= availableTicketsForSelection;
+    } else {
+      // Lógica legacy: si no hay schedules, depende de maxCapacity general
+      canFinalizeBook = canAttemptBook &&
+          (_currentExperience.maxCapacity == 0 || // Si es gratis o no requiere capacidad
+              (!isSelectionFullyBooked && // isSelectionFullyBooked se refiere a la capacidad general
+                  _selectedTickets > 0 &&
+                  _selectedTickets <= availableTicketsForSelection));
+    }
+
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -665,12 +882,17 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
                     const Text('Boletos', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF5D4037))),
                     const SizedBox(height: 4),
                     Text(
-                      _currentExperience.maxCapacity == 0 ? 'No requiere reserva' :
-                      isFullyBooked ? 'Agotados' : 'Disponibles: $availableTickets',
-                      style: TextStyle(color: isFullyBooked ? Colors.red.shade700 : Colors.green.shade800, fontWeight: FontWeight.w600),
+                      ticketsInfoText, // Usa el texto dinámico
+                      style: TextStyle(
+                          color: isSelectionFullyBooked && (_selectedSchedule != null || _currentExperience.maxCapacity > 0)
+                              ? Colors.red.shade700
+                              : Colors.green.shade800,
+                          fontWeight: FontWeight.w600
+                      ),
                     ),
                     const SizedBox(height: 8),
-                    if (!isFullyBooked && _currentExperience.maxCapacity > 0)
+                    // Mostrar controles de cantidad solo si hay un schedule seleccionado y disponible, o si no hay schedules y hay capacidad
+                    if ((_selectedSchedule != null && !isSelectionFullyBooked) || (_currentExperience.schedule.isEmpty && _currentExperience.maxCapacity > 0 && !isSelectionFullyBooked))
                       Row(
                         children: [
                           IconButton(
@@ -685,12 +907,16 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
                           IconButton(
                             icon: const Icon(Icons.add_circle_outline_rounded, color: Color(0xFFE67E22)),
                             iconSize: 30, padding: EdgeInsets.zero, constraints: BoxConstraints(),
-                            onPressed: _selectedTickets < availableTickets ? () => setState(() => _selectedTickets++) : null,
+                            onPressed: _selectedTickets < availableTicketsForSelection ? () => setState(() => _selectedTickets++) : null,
                           ),
                         ],
                       )
-                    else if (_currentExperience.maxCapacity == 0)
-                      Text('No se necesita seleccionar boletos.', style: TextStyle(color: Colors.grey[700])),
+                    else if (_currentExperience.schedule.isEmpty && _currentExperience.maxCapacity == 0)
+                      Text('No se necesita seleccionar boletos.', style: TextStyle(color: Colors.grey[700]))
+                    else if (_selectedSchedule == null && _currentExperience.schedule.isNotEmpty)
+                        Text('Selecciona un horario para ver disponibilidad.', style: TextStyle(color: Colors.blueGrey[700]))
+                    // else if (isSelectionFullyBooked)
+                    //   SizedBox.shrink(), // No mostrar nada si está agotado y ya se indicó arriba
                   ],
                 ),
               ),
@@ -701,14 +927,15 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
                   icon: Icon(FirebaseAuth.instance.currentUser == null ? Icons.login_rounded : Icons.confirmation_number_rounded, size: 20),
                   label: Text(
                     FirebaseAuth.instance.currentUser == null ? 'Inicia Sesión' :
-                    _currentExperience.maxCapacity == 0 ? 'Asistir' :
-                    isFullyBooked ? 'Agotado' : 'Reservar ($_selectedTickets)',
+                    (_currentExperience.schedule.isEmpty && _currentExperience.maxCapacity == 0) ? 'Asistir' : // Experiencia sin horarios y sin capacidad (gratis/abierta)
+                    (_selectedSchedule == null && _currentExperience.schedule.isNotEmpty) ? 'Selecciona Horario' :
+                    isSelectionFullyBooked ? 'Agotado' : 'Reservar ($_selectedTickets)',
                     textAlign: TextAlign.center,
                     style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                   ),
                   onPressed: FirebaseAuth.instance.currentUser == null
                       ? () { _showSnackBar('Por favor, inicia sesión para reservar.', Colors.amber); /* TODO: Navegar a Login */ }
-                      : (canBook ? _bookExperience : null),
+                      : (canFinalizeBook ? _bookExperience : null),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFE67E22), foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
@@ -734,6 +961,7 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
     );
   }
 
+  // --- Widgets de Reseñas (Header, List, Item, AddReview) sin cambios significativos ---
   Widget _buildReviewsSectionHeader() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -778,12 +1006,11 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
         child: Center(child: CircularProgressIndicator()),
       );
     }
-    // No mostrar el texto de "no hay reseñas" aquí si ya lo hace el header.
     if (_reviews.isEmpty && !_isLoadingReviews) {
-      return const SizedBox.shrink();
+      return const SizedBox.shrink(); // Ya manejado por el header
     }
     return ListView.builder(
-      physics: const NeverScrollableScrollPhysics(), // Para que no scrollee dentro del CustomScrollView
+      physics: const NeverScrollableScrollPhysics(),
       shrinkWrap: true,
       itemCount: _reviews.length,
       itemBuilder: (context, index) {
@@ -816,8 +1043,7 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF5D4037)),
                         ),
                         Text(
-                          // Formatear la fecha para que sea más legible
-                          "${review.createdAt.day}/${review.createdAt.month}/${review.createdAt.year}",
+                          DateFormat('dd/MM/yyyy, hh:mm a', 'es').format(review.createdAt), // Formato de fecha mejorado
                           style: TextStyle(color: Colors.grey[600], fontSize: 12),
                         ),
                       ],
@@ -844,8 +1070,6 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
       ),
     );
   }
-
-  // ... (código anterior como se proporcionó) ...
 
   Widget _buildAddReviewSection() {
     final user = FirebaseAuth.instance.currentUser;
