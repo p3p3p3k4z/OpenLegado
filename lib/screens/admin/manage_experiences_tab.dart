@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // Solo para obtener el rol actual
+// import 'package:firebase_auth/firebase_auth.dart'; // No se usa directamente aquí, sino el rol/id pasado
 import '../../models/experience.dart';
-import '../../models/user.dart'; // Para AppUser
+// import '../../models/user.dart'; // No se usa directamente aquí
 import '../../widgets/experience_list_item.dart';
 import '../submit_experience_screen.dart';
 import 'package:intl/intl.dart';
 
 class ManageExperiencesTab extends StatefulWidget {
   final String currentUserRole; // 'moderator' o 'admin'
-  final String currentUserId;   // Para referencia, aunque no se use mucho aquí
+  final String currentUserId;
 
   const ManageExperiencesTab({
     super.key,
@@ -23,15 +23,20 @@ class ManageExperiencesTab extends StatefulWidget {
 
 String formatDate(DateTime? date) {
   if (date == null) return 'N/A';
-  // Elige el formato que prefieras. Ej: 'dd/MM/yyyy HH:mm'
-  return DateFormat('yyyy-MM-dd – kk:mm', 'es_MX').format(date.toLocal()); // 'es_MX' o tu locale
+  return DateFormat('yyyy-MM-dd – kk:mm', 'es_MX').format(date.toLocal());
 }
 
 class _ManageExperiencesTabState extends State<ManageExperiencesTab> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  String _selectedFilter = 'all'; // 'all', 'pending', 'approved', 'rejected'
+  String _selectedFilter = 'all';
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   void _showSnackBar(String message, {bool isError = false}) {
     if (!mounted) return;
@@ -51,7 +56,7 @@ class _ManageExperiencesTabState extends State<ManageExperiencesTab> {
     }
     try {
       Map<String, dynamic> updateData = {
-        'status': newStatus.toString().split('.').last,
+        'status': newStatus.name, // Usar .name para enums es más robusto
         'lastUpdatedAt': FieldValue.serverTimestamp(),
       };
       if (isVerified != null) {
@@ -63,7 +68,7 @@ class _ManageExperiencesTabState extends State<ManageExperiencesTab> {
 
       await _firestore.collection('experiences').doc(experience.id).update(updateData);
       _showSnackBar(
-        'Experiencia "${experience.title}" actualizada a ${newStatus.toString().split('.').last}.',
+        'Experiencia "${experience.title}" actualizada a ${newStatus.name}.',
       );
     } catch (e) {
       _showSnackBar('Error al actualizar la experiencia: $e', isError: true);
@@ -84,7 +89,7 @@ class _ManageExperiencesTabState extends State<ManageExperiencesTab> {
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+            child: Text('Eliminar', style: TextStyle(color: Theme.of(context).colorScheme.error)),
           ),
         ],
       ),
@@ -100,14 +105,35 @@ class _ManageExperiencesTabState extends State<ManageExperiencesTab> {
     }
   }
 
+  // ---------- MODIFICACIÓN AQUÍ -----------
   void _navigateToEditExperience(Experience experience) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => SubmitExperienceScreen(experienceToEdit: experience),
+        builder: (context) => SubmitExperienceScreen(
+          experienceToEdit: experience,
+          onSubmitSuccess: () { // <--- PARÁMETRO AÑADIDO
+            // Cuando SubmitExperienceScreen llama a este callback (tras guardar exitosamente),
+            // simplemente cerramos SubmitExperienceScreen.
+            // El .then() de Navigator.push se encargará de refrescar el estado de ManageExperiencesTab.
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            }
+          },
+        ),
       ),
-    ).then((_) => setState(() {})); // Refrescar si hay cambios
+    ).then((_) {
+      // Este .then se ejecuta cuando se regresa de SubmitExperienceScreen
+      // (ya sea por el pop que acabamos de agregar en onSubmitSuccess o si el usuario usa el botón "atrás").
+      // Refresca el estado para asegurar que la UI muestre los cambios.
+      // Aunque el StreamBuilder ayuda, setState() asegura que cualquier otro widget
+      // dependiente del estado también se reconstruya si es necesario.
+      if (mounted) {
+        setState(() {});
+      }
+    });
   }
+  // ---------- FIN DE LA MODIFICACIÓN -----------
 
   void _handleExperienceAction(ExperienceAction action, Experience experience) {
     switch (action) {
@@ -124,10 +150,15 @@ class _ManageExperiencesTabState extends State<ManageExperiencesTab> {
         _updateExperienceStatus(experience, ExperienceStatus.rejected, isVerified: false, isFeatured: false);
         break;
       case ExperienceAction.feature:
-        _updateExperienceStatus(experience, experience.status, isFeatured: true);
+      // Solo permitir destacar si ya está aprobada
+        if (experience.status == ExperienceStatus.approved) {
+          _updateExperienceStatus(experience, ExperienceStatus.approved, isFeatured: true);
+        } else {
+          _showSnackBar('Solo se pueden destacar experiencias que ya han sido aprobadas.', isError: true);
+        }
         break;
       case ExperienceAction.unfeature:
-        _updateExperienceStatus(experience, experience.status, isFeatured: false);
+        _updateExperienceStatus(experience, experience.status, isFeatured: false); // Mantiene el estado actual, solo cambia isFeatured
         break;
       case ExperienceAction.viewDetails:
         showDialog(
@@ -142,26 +173,22 @@ class _ManageExperiencesTabState extends State<ManageExperiencesTab> {
                       Text("ID: ${experience.id}"),
                       Text("Creador ID: ${experience.creatorId}"),
                       Text("Categoría: ${experience.category}"),
-                      Text("Estado: ${experience.status.toString().split('.').last}"),
+                      Text("Estado: ${experience.status.name}"), // Usar .name para enums
                       Text("Verificada: ${experience.isVerified ? 'Sí' : 'No'}"),
                       Text("Destacada: ${experience.isFeatured ? 'Sí' : 'No'}"),
                       Text("Ubicación: ${experience.location}"),
-                      Text("Precio: \$${experience.price}"),
+                      Text("Precio: \$${experience.price.toStringAsFixed(2)}"), // Buen formato para precio
                       Text("Enviada: ${formatDate(experience.submittedAt)}"),
                       Text("Actualizada: ${formatDate(experience.lastUpdatedAt)}"),
+                      const SizedBox(height: 8),
+                      Text("Descripción:", style: Theme.of(context).textTheme.titleSmall),
+                      Text(experience.description),
                     ],
-                  )
-              ),
+                  )),
               actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cerrar"))],
             ));
         break;
     }
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
   }
 
   @override
@@ -172,7 +199,6 @@ class _ManageExperiencesTabState extends State<ManageExperiencesTab> {
           padding: const EdgeInsets.all(12.0),
           child: Column(
             children: [
-              // --- Barra de Búsqueda ---
               TextField(
                 controller: _searchController,
                 decoration: InputDecoration(
@@ -201,7 +227,6 @@ class _ManageExperiencesTabState extends State<ManageExperiencesTab> {
                 },
               ),
               const SizedBox(height: 10),
-              // --- Filtros ---
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -214,6 +239,7 @@ class _ManageExperiencesTabState extends State<ManageExperiencesTab> {
                         if (selected) setState(() => _selectedFilter = 'all');
                       },
                       selectedColor: Theme.of(context).primaryColor.withOpacity(0.3),
+                      checkmarkColor: Theme.of(context).primaryColor,
                     ),
                     const SizedBox(width: 8),
                     FilterChip(
@@ -222,8 +248,9 @@ class _ManageExperiencesTabState extends State<ManageExperiencesTab> {
                       onSelected: (bool selected) {
                         if (selected) setState(() => _selectedFilter = 'pending');
                       },
-                      avatar: CircleAvatar(backgroundColor: Colors.orangeAccent.withOpacity(0.5),radius: 8),
-                      selectedColor: Theme.of(context).primaryColor.withOpacity(0.3),
+                      avatar: CircleAvatar(backgroundColor: Colors.orangeAccent.withOpacity(0.7), radius: 8),
+                      selectedColor: Colors.orangeAccent.withOpacity(0.3),
+                      checkmarkColor: Colors.deepOrange,
                     ),
                     const SizedBox(width: 8),
                     FilterChip(
@@ -232,8 +259,9 @@ class _ManageExperiencesTabState extends State<ManageExperiencesTab> {
                       onSelected: (bool selected) {
                         if (selected) setState(() => _selectedFilter = 'approved');
                       },
-                      avatar: CircleAvatar(backgroundColor: Colors.green.withOpacity(0.5),radius: 8),
-                      selectedColor: Theme.of(context).primaryColor.withOpacity(0.3),
+                      avatar: CircleAvatar(backgroundColor: Colors.green.withOpacity(0.7), radius: 8),
+                      selectedColor: Colors.green.withOpacity(0.3),
+                      checkmarkColor: Colors.green.shade800,
                     ),
                     const SizedBox(width: 8),
                     FilterChip(
@@ -242,8 +270,9 @@ class _ManageExperiencesTabState extends State<ManageExperiencesTab> {
                       onSelected: (bool selected) {
                         if (selected) setState(() => _selectedFilter = 'rejected');
                       },
-                      avatar: CircleAvatar(backgroundColor: Colors.redAccent.withOpacity(0.5), radius: 8),
-                      selectedColor: Theme.of(context).primaryColor.withOpacity(0.3),
+                      avatar: CircleAvatar(backgroundColor: Colors.redAccent.withOpacity(0.7), radius: 8),
+                      selectedColor: Colors.redAccent.withOpacity(0.3),
+                      checkmarkColor: Colors.red.shade800,
                     ),
                   ],
                 ),
@@ -275,7 +304,7 @@ class _ManageExperiencesTabState extends State<ManageExperiencesTab> {
               // Aplicar filtro de estado
               if (_selectedFilter != 'all') {
                 experiences = experiences
-                    .where((exp) => exp.status.toString().split('.').last == _selectedFilter)
+                    .where((exp) => exp.status.name == _selectedFilter) // Comparar con .name
                     .toList();
               }
 
@@ -290,15 +319,19 @@ class _ManageExperiencesTabState extends State<ManageExperiencesTab> {
 
               if (experiences.isEmpty) {
                 return Center(
-                  child: Text(
-                    'No hay experiencias que coincidan con los filtros${_searchQuery.isNotEmpty ? ' y la búsqueda' : ''}.',
-                    textAlign: TextAlign.center,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Text(
+                      'No hay experiencias que coincidan con los filtros${_searchQuery.isNotEmpty ? ' y la búsqueda actual' : ''}.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
                   ),
                 );
               }
 
               return ListView.builder(
-                padding: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.only(bottom: 16, left: 8, right: 8, top: 8),
                 itemCount: experiences.length,
                 itemBuilder: (context, index) {
                   final experience = experiences[index];

@@ -33,20 +33,19 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
       final userDoc = await _firestore.collection('users').doc(_currentUser!.uid).get();
       if (userDoc.exists && mounted) {
         setState(() {
+          // Asegúrate de que el casteo sea seguro
           _currentAppUser = AppUser.fromFirestore(userDoc as DocumentSnapshot<Map<String, dynamic>>);
           _isLoadingUser = false;
         });
       } else if (mounted) {
         setState(() {
           _isLoadingUser = false;
-          // Manejar caso donde el documento de usuario no existe en Firestore
           print("Error: Documento de AppUser no encontrado en Firestore para UID: ${_currentUser!.uid}");
         });
       }
     } else if (mounted) {
       setState(() {
         _isLoadingUser = false;
-        // Manejar caso donde no hay usuario logueado
         print("Error: No hay usuario de FirebaseAuth logueado.");
       });
     }
@@ -58,7 +57,7 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: isError ? Colors.redAccent : Colors.green,
+        backgroundColor: isError ? Theme.of(context).colorScheme.error : Colors.green,
         duration: const Duration(seconds: 3),
       ),
     );
@@ -70,7 +69,6 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
       return;
     }
 
-    // Confirmación antes de eliminar
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -80,7 +78,7 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+            child: Text('Eliminar', style: TextStyle(color: Theme.of(context).colorScheme.error)),
           ),
         ],
       ),
@@ -90,21 +88,37 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
       try {
         await _firestore.collection('experiences').doc(experience.id).delete();
         _showSnackBar('Experiencia eliminada con éxito.');
+        // No es necesario setState aquí si el StreamBuilder maneja la actualización de la lista
       } catch (e) {
         _showSnackBar('Error al eliminar la experiencia: $e', isError: true);
       }
     }
   }
 
+  // MODIFICADO AQUÍ
   void _navigateToSubmitExperience({Experience? experienceToEdit}) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => SubmitExperienceScreen(experienceToEdit: experienceToEdit),
+        builder: (context) => SubmitExperienceScreen(
+          experienceToEdit: experienceToEdit,
+          onSubmitSuccess: () {
+            // Cuando SubmitExperienceScreen llama a este callback,
+            // simplemente cerramos SubmitExperienceScreen.
+            // El .then() de Navigator.push se encargará de refrescar.
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            }
+          },
+        ),
       ),
     ).then((_) {
-      // Opcional: refrescar la lista o hacer algo cuando se regresa de la pantalla de envío
-      setState(() {});
+      // Este .then se ejecuta cuando se regresa de SubmitExperienceScreen
+      // (ya sea por el pop que acabamos de agregar en onSubmitSuccess o si el usuario usa el botón "atrás").
+      // Refresca la lista de experiencias en el panel.
+      if (mounted) {
+        setState(() {});
+      }
     });
   }
 
@@ -117,8 +131,6 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
         _deleteExperience(experience);
         break;
       case ExperienceAction.viewDetails:
-      // Aquí podrías navegar a una pantalla de detalle si la tienes.
-      // Por ahora, solo como ejemplo, podríamos mostrar un diálogo con más info.
         showDialog(
             context: context,
             builder: (context) => AlertDialog(
@@ -134,7 +146,6 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
             ));
         break;
       default:
-      // Otras acciones no son relevantes para el creador directamente desde su panel (aprobar, destacar, etc.)
         print("Acción no manejada para creador: $action");
     }
   }
@@ -156,22 +167,22 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
         ),
       );
     }
-    // Verificación adicional de rol, aunque la navegación al panel ya debería filtrarlo
-    if (_currentAppUser!.role != 'creator' && _currentAppUser!.role != 'admin' && _currentAppUser!.role != 'moderator') {
-      // Si es admin o moderator, podrían tener una vista especial o ser redirigidos a su panel.
-      // Por ahora, si no es 'creator', mostramos un mensaje.
-      // En una app real, la lógica de navegación general impediría que un 'user' llegue aquí.
+
+    // Simplificamos la verificación de rol, ya que este panel es para creadores.
+    // Si un admin llega aquí, puede ser una lógica intencional o un error de navegación.
+    // Por ahora, solo nos aseguramos de que sea 'creator' o 'admin' (si admin puede ver esto)
+    // Sin embargo, el panel de "Mis experiencias" suele ser más específico del creadorId.
+    if (_currentAppUser!.role != 'creator' && _currentAppUser!.role != 'admin' ) { // He añadido admin aquí por si acaso, pero el query es por creatorId
       return Scaffold(
         appBar: AppBar(title: const Text('Mis Experiencias')),
         body: const Center(
           child: Padding(
             padding: EdgeInsets.all(16.0),
-            child: Text('No tienes los permisos necesarios para acceder a esta sección como creador.', textAlign: TextAlign.center),
+            child: Text('No tienes los permisos necesarios para acceder a esta sección.', textAlign: TextAlign.center),
           ),
         ),
       );
     }
-
 
     return Scaffold(
       appBar: AppBar(
@@ -180,15 +191,15 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
           IconButton(
             icon: const Icon(Icons.add_circle_outline),
             tooltip: 'Crear Nueva Experiencia',
-            onPressed: () => _navigateToSubmitExperience(),
+            onPressed: () => _navigateToSubmitExperience(), // Llama sin argumentos para nueva experiencia
           ),
         ],
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: _firestore
             .collection('experiences')
-            .where('creatorId', isEqualTo: _currentUser!.uid)
-            .orderBy('lastUpdatedAt', descending: true) // Mostrar las más recientes primero
+            .where('creatorId', isEqualTo: _currentUser!.uid) // Solo las del creador actual
+            .orderBy('lastUpdatedAt', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -216,9 +227,11 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
                     ElevatedButton.icon(
                       icon: const Icon(Icons.add),
                       label: const Text('Publicar mi Primera Experiencia'),
-                      onPressed: () => _navigateToSubmitExperience(),
+                      onPressed: () => _navigateToSubmitExperience(), // Llama sin argumentos para nueva experiencia
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        backgroundColor: Theme.of(context).primaryColor,
+                        foregroundColor: Colors.white,
                       ),
                     )
                   ],
@@ -230,15 +243,15 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
           final experiences = snapshot.data!.docs.map((doc) => Experience.fromFirestore(doc)).toList();
 
           return ListView.builder(
-            padding: const EdgeInsets.only(top: 8, bottom: 80), // Espacio para FAB si lo añades
+            padding: const EdgeInsets.only(top: 8, bottom: 80),
             itemCount: experiences.length,
             itemBuilder: (context, index) {
               final experience = experiences[index];
               return ExperienceListItem(
                 experience: experience,
-                currentUserRole: _currentAppUser!.role, // Rol del usuario actual
-                currentUserId: _currentUser!.uid,   // ID del usuario actual
-                onAction: _handleExperienceAction,
+                currentUserRole: _currentAppUser!.role,
+                currentUserId: _currentUser!.uid,
+                onAction: (action, exp) => _handleExperienceAction(action, exp), // Asegúrate que el onAction esté bien
               );
             },
           );
@@ -247,7 +260,8 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
       floatingActionButton: FloatingActionButton.extended(
         icon: const Icon(Icons.add),
         label: const Text('Nueva Experiencia'),
-        onPressed: () => _navigateToSubmitExperience(),
+        onPressed: () => _navigateToSubmitExperience(), // Llama sin argumentos para nueva experiencia
+        backgroundColor: Theme.of(context).colorScheme.secondary,
       ),
     );
   }

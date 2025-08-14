@@ -205,20 +205,23 @@ class Experience {
 
 // Asegúrate de tener la definición de TicketSchedule disponible.
 // Por ejemplo:
+// En models/experience.dart (o un archivo dedicado como models/ticket_schedule.dart e importarlo)
 class TicketSchedule {
   final DateTime date;
   final int capacity;
-  final int bookedTickets;
+  final int bookedTickets; // Generalmente se inicializa en 0 al crear una nueva entrada de horario
 
   TicketSchedule({
     required this.date,
     required this.capacity,
-    this.bookedTickets = 0,
+    this.bookedTickets = 0, // Valor por defecto
   });
 
+  // Métodos toMap/fromMap para Firestore si los almacenas directamente como subcolección
+  // o como parte de la lista 'schedule' en el documento Experience.
   Map<String, dynamic> toMap() {
     return {
-      'date': Timestamp.fromDate(date),
+      'date': Timestamp.fromDate(date), // Guardar como Timestamp en Firestore
       'capacity': capacity,
       'bookedTickets': bookedTickets,
     };
@@ -226,9 +229,22 @@ class TicketSchedule {
 
   factory TicketSchedule.fromMap(Map<String, dynamic> map) {
     return TicketSchedule(
-      date: (map['date'] as Timestamp).toDate(),
-      capacity: map['capacity'] as int? ?? 0,
+      date: (map['date'] as Timestamp).toDate(), // Leer como Timestamp desde Firestore
+      capacity: map['capacity'] as int,
       bookedTickets: map['bookedTickets'] as int? ?? 0,
+    );
+  }
+
+  // Es útil tener un copyWith si necesitas modificar instancias
+  TicketSchedule copyWith({
+    DateTime? date,
+    int? capacity,
+    int? bookedTickets,
+  }) {
+    return TicketSchedule(
+      date: date ?? this.date,
+      capacity: capacity ?? this.capacity,
+      bookedTickets: bookedTickets ?? this.bookedTickets,
     );
   }
 }

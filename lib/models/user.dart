@@ -12,10 +12,9 @@ class AppUser {
   final int experiencesSubmitted;
   final DateTime? createdAt;
   final DateTime? lastLoginAt;
-
-  // NUEVOS CAMPOS PARA ESTADÍSTICAS
   final int communitiesSupported;
   final int artisansMet;
+  final bool isDisabled; // <--- AÑADIR CAMPO PARA SOFT DELETE
 
   AppUser({
     required this.uid,
@@ -28,9 +27,9 @@ class AppUser {
     this.experiencesSubmitted = 0,
     this.createdAt,
     this.lastLoginAt,
-    // AÑADIR VALORES POR DEFECTO PARA LOS NUEVOS CAMPOS
     this.communitiesSupported = 0,
     this.artisansMet = 0,
+    this.isDisabled = false, // <--- VALOR POR DEFECTO
   })  : interests = interests ?? [],
         savedExperiences = savedExperiences ?? [];
 
@@ -49,14 +48,14 @@ class AppUser {
       experiencesSubmitted: (data['experiencesSubmitted'] as num?)?.toInt() ?? 0,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
       lastLoginAt: (data['lastLoginAt'] as Timestamp?)?.toDate(),
-      // LEER LOS NUEVOS CAMPOS DESDE FIRESTORE
       communitiesSupported: (data['communitiesSupported'] as num?)?.toInt() ?? 0,
       artisansMet: (data['artisansMet'] as num?)?.toInt() ?? 0,
+      isDisabled: data['isDisabled'] as bool? ?? false, // <--- LEER DESDE FIRESTORE
     );
   }
 
   Map<String, dynamic> toMap({bool forCreation = false}) {
-    final map = {
+    final map = <String, dynamic>{ // Especificar el tipo del mapa
       'uid': uid,
       'email': email,
       'username': username,
@@ -65,21 +64,23 @@ class AppUser {
       'interests': interests,
       'savedExperiences': savedExperiences,
       'experiencesSubmitted': experiencesSubmitted,
-      // AÑADIR LOS NUEVOS CAMPOS AL MAPA PARA GUARDAR EN FIRESTORE
       'communitiesSupported': communitiesSupported,
       'artisansMet': artisansMet,
-      // createdAt y lastLoginAt como los tenías
+      'isDisabled': isDisabled, // <--- AÑADIR AL MAPA
     };
 
     if (forCreation) {
       map['createdAt'] = FieldValue.serverTimestamp();
-    } else if (createdAt != null) {
-      map['createdAt'] = Timestamp.fromDate(createdAt!);
+      map['lastLoginAt'] = FieldValue.serverTimestamp(); // También al crear
+    } else {
+      if (createdAt != null) {
+        map['createdAt'] = Timestamp.fromDate(createdAt!);
+      }
+      // Considera si lastLoginAt se actualiza aquí o solo en el login real
+      if (lastLoginAt != null) {
+        map['lastLoginAt'] = Timestamp.fromDate(lastLoginAt!);
+      }
     }
-    // Si manejas lastLoginAt:
-    // map['lastLoginAt'] = lastLoginAt != null ? Timestamp.fromDate(lastLoginAt!) : FieldValue.serverTimestamp();
-
-
     return map;
   }
 }

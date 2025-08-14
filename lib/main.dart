@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 // import 'package:flutter_svg/flutter_svg.dart'; // No se usa en el código que me pasaste para main o LegadoApp
 import 'screens/welcome_screen.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 // Importaciones de Firebase añadidas
 import 'package:firebase_core/firebase_core.dart';
@@ -101,6 +102,25 @@ class LegadoApp extends StatelessWidget {
           ),
         ),
       ),
+
+      localizationsDelegates: [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate, // Bueno tenerlo por si usas algo de Cupertino
+      ],
+      supportedLocales: [
+        const Locale('en', ''), // Inglés, como fallback o si lo soportas
+        const Locale('es', ''), // Español genérico
+        const Locale('es', 'MX'), // Español específico para México
+        // Puedes añadir otros idiomas que tu app vaya a soportar
+      ],
+      // Opcional: Especificar el locale inicial de la app
+      // Si quieres que siempre inicie en 'es_MX' (o 'es'), descomenta y ajusta:
+      // locale: const Locale('es', 'MX'),
+      // Si no lo pones, intentará usar el idioma del dispositivo si está en supportedLocales,
+      // o el primer locale de la lista supportedLocales como fallback.
+
+
       home: WelcomeScreen(), // Tu WelcomeScreen existente
     );
   }
