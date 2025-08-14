@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart'; // Para formatear fechas y horas
+import 'package:intl/date_symbol_data_local.dart'; // Para inicializar formatos locales
 
 // Importa los modelos de datos modularizados
 import '../models/experience.dart';
@@ -51,8 +52,23 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
 
 
   @override
+  @override
   void initState() {
     super.initState();
+    // Asegúrate de inicializar los datos de formato para tu locale si aún no lo has hecho globalmente
+    // Es buena práctica hacerlo en el main.dart, pero si no, aquí también funciona.
+    initializeDateFormatting('es_MX', null).then((_) {
+      // Una vez inicializado, puedes reconstruir el widget si es necesario
+      // o simplemente confiar en que estará listo cuando se use DateFormat.
+      if (mounted) {
+        setState(() {
+          // Esto es solo para forzar una reconstrucción si los formatos dependen de la inicialización
+          // y el widget se construyó antes de que la inicialización completara.
+          // En la mayoría de los casos, si la inicialización es rápida, no se notará.
+        });
+      }
+    });
+
     _currentExperience = widget.experience;
     _initializeDefaultSchedule();
     _checkIfFavorite();
@@ -735,18 +751,22 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
       return const SizedBox.shrink(); // No mostrar nada si no hay horarios
     }
 
-    // Filtrar schedules que aún tienen capacidad o son el actualmente seleccionado
-    // para permitir ver el seleccionado incluso si se llena mientras lo miras.
-    final availableSchedules = _currentExperience.schedule
-        .where((s) => (s.capacity - s.bookedTickets > 0) || (s == _selectedSchedule))
-        .toList();
+    // Ordenar los schedules por fecha y hora para que aparezcan cronológicamente en el dropdown
+    // Es una buena práctica hacerlo aquí, aunque ya deberían venir ordenados de Firestore si así los guardas.
+    final List<TicketSchedule> sortedSchedules = List.from(_currentExperience.schedule);
+    sortedSchedules.sort((a, b) => a.date.compareTo(b.date));
 
-    if (availableSchedules.isEmpty && _selectedSchedule == null) {
+
+    // No es necesario filtrar aquí los 'availableSchedules' para el Dropdown,
+    // ya que el DropdownMenuItem maneja el estado 'enabled' y visual.
+    // Mostrar todos permite al usuario ver incluso los agotados.
+
+    if (sortedSchedules.isEmpty && _selectedSchedule == null) { // Aunque el if de arriba ya lo cubre.
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 8.0),
         child: Text(
-          "Todos los horarios están agotados.",
-          style: TextStyle(color: Colors.red.shade700, fontStyle: FontStyle.italic),
+          "No hay horarios disponibles en este momento.",
+          style: TextStyle(color: Colors.orange.shade700, fontStyle: FontStyle.italic),
         ),
       );
     }
@@ -758,7 +778,7 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
         const Text('Selecciona un Horario:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF5D4037))),
         const SizedBox(height: 8),
         DropdownButtonFormField<TicketSchedule>(
-          value: _selectedSchedule,
+          value: _selectedSchedule, // El schedule actualmente seleccionado
           isExpanded: true,
           decoration: InputDecoration(
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
@@ -767,30 +787,45 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
             fillColor: Colors.white,
           ),
           hint: const Text('Elige fecha y hora'),
-          items: _currentExperience.schedule // Mostrar todos, pero deshabilitar los llenos
+          // Usar los schedules ordenados
+          items: sortedSchedules
               .map<DropdownMenuItem<TicketSchedule>>((TicketSchedule scheduleItem) {
             final int ticketsLeft = scheduleItem.capacity - scheduleItem.bookedTickets;
             final bool isAvailable = ticketsLeft > 0;
-            final DateFormat dateFormat = DateFormat('EEE, d MMM, hh:mm a', 'es'); // 'es' para español
+
+            // ***** CAMBIO PRINCIPAL AQUÍ *****
+            // Formatear la fecha para incluir la hora. Usa tu locale 'es_MX'.
+            final String formattedDateTime =
+            DateFormat('EEEE, d MMM, hh:mm a', 'es_MX').format(scheduleItem.date);
+            // Alternativa 24h: DateFormat('EEEE, d MMM, HH:mm', 'es_MX')
 
             return DropdownMenuItem<TicketSchedule>(
               value: scheduleItem,
               enabled: isAvailable, // Deshabilitar si no hay boletos
               child: Text(
-                '${dateFormat.format(scheduleItem.date)} (${isAvailable ? "$ticketsLeft disp." : "Agotado"})',
+                '$formattedDateTime (${isAvailable ? "$ticketsLeft disp." : "Agotado"})',
                 style: TextStyle(
                   color: isAvailable ? Colors.black87 : Colors.grey,
-                  decoration: !isAvailable ? TextDecoration.lineThrough : null,
+                  // Tachar si no está disponible, pero no si es el actualmente seleccionado
+                  // (para que el usuario vea su selección incluso si se agota mientras mira)
+                  decoration: (!isAvailable && scheduleItem != _selectedSchedule)
+                      ? TextDecoration.lineThrough
+                      : null,
                 ),
               ),
             );
           }).toList(),
           onChanged: (TicketSchedule? newValue) {
-            if (newValue != null) {
+            // Solo permitir cambiar si el nuevo valor es diferente y está disponible
+            // (aunque el 'enabled' del DropdownMenuItem ya debería prevenir la selección de deshabilitados)
+            if (newValue != null && (newValue.capacity - newValue.bookedTickets > 0)) {
               setState(() {
                 _selectedSchedule = newValue;
                 _selectedTickets = 1; // Resetear al cambiar de horario
               });
+            } else if (newValue != null && !(newValue.capacity - newValue.bookedTickets > 0)) {
+              // Si intentan seleccionar uno agotado (aunque no debería ser posible por 'enabled')
+              _showSnackBar("Este horario está agotado.", Colors.orange);
             }
           },
           // Validar que se haya seleccionado un horario si hay schedules
@@ -804,7 +839,6 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
       ],
     );
   }
-
 
   Widget _buildBookingControls(int availableTicketsForSelection, bool isSelectionFullyBooked, String ticketsInfoText) {
     bool canAttemptBook = FirebaseAuth.instance.currentUser != null;

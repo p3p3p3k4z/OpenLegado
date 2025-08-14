@@ -56,7 +56,7 @@ class _SubmitExperienceScreenState extends State<SubmitExperienceScreen> {
   void _loadExperienceForEditing(Experience experience) {
     _titleController.text = experience.title;
     _descriptionController.text = experience.description;
-    _imageController.text = experience.imageAsset == 'assets/placeholder.jpg' || experience.imageAsset.startsWith('https://placehold.co')
+    _imageController.text = experience.imageAsset == 'assets/placeholder.jpg' || experience.imageAsset.startsWith('https://static.vecteezy.com/system/resources/previews/008/695/917/non_2x/no-image-available-icon-simple-two-colors-template-for-no-image-or-picture-coming-soon-and-placeholder-illustration-isolated-on-white-background-vector.jpg')
         ? ''
         : experience.imageAsset;
     _locationController.text = experience.location;
@@ -86,55 +86,94 @@ class _SubmitExperienceScreenState extends State<SubmitExperienceScreen> {
     );
   }
 
+
   Future<void> _addOrEditScheduleEntry({TicketSchedule? scheduleToEdit, int? index}) async {
+    // 1. SELECCIONAR FECHA
     final DateTime initialDatePickerDate = scheduleToEdit?.date ?? DateTime.now();
-    final DateTime firstAllowedDate = DateTime.now().subtract(const Duration(days: 1));
+    final DateTime firstAllowedDate = DateTime.now().subtract(const Duration(days: 1)); // No permitir fechas pasadas
     final DateTime validInitialDate = initialDatePickerDate.isBefore(firstAllowedDate) ? firstAllowedDate : initialDatePickerDate;
 
     final DateTime? pickedDate = await showDatePicker(
       context: context,
       initialDate: validInitialDate,
       firstDate: firstAllowedDate,
-      lastDate: DateTime.now().add(const Duration(days: 730)),
+      lastDate: DateTime.now().add(const Duration(days: 730)), // Por ejemplo, hasta 2 años en el futuro
       locale: const Locale('es', 'MX'),
       helpText: scheduleToEdit == null ? 'SELECCIONAR FECHA' : 'EDITAR FECHA',
       confirmText: 'ACEPTAR',
       cancelText: 'CANCELAR',
     );
 
-    if (pickedDate != null && mounted) {
-      final isEditingSameDate = scheduleToEdit != null &&
-          pickedDate.year == scheduleToEdit.date.year &&
-          pickedDate.month == scheduleToEdit.date.month &&
-          pickedDate.day == scheduleToEdit.date.day;
+    if (pickedDate == null) return; // El usuario canceló la selección de fecha
+    if (!mounted) return;
 
-      if (!isEditingSameDate) {
-        final existingEntryIndex = _scheduleList.indexWhere((s) =>
-        s.date.year == pickedDate.year &&
-            s.date.month == pickedDate.month &&
-            s.date.day == pickedDate.day);
-        if (existingEntryIndex != -1) {
-          _showSnackBar('Ya existe una entrada para esta fecha. Edítala o elimínala.', isError: true);
-          return;
+    // 2. SELECCIONAR HORA
+    final TimeOfDay initialTimePickerTime = scheduleToEdit != null
+        ? TimeOfDay.fromDateTime(scheduleToEdit.date) // Usar la hora existente si se está editando
+        : TimeOfDay.now(); // Usar la hora actual si es una nueva entrada
+
+    final TimeOfDay? pickedTime = await showTimePicker(
+      context: context,
+      initialTime: initialTimePickerTime,
+      helpText: scheduleToEdit == null ? 'SELECCIONAR HORA' : 'EDITAR HORA',
+      confirmText: 'ACEPTAR',
+      cancelText: 'CANCELAR',
+      builder: (context, child) { // Opcional: Para que el tema del TimePicker coincida con el DatePicker
+        return Localizations.override(
+          context: context,
+          locale: const Locale('es', 'MX'), // Para formato de hora AM/PM o 24h según locale
+          child: child,
+        );
+      },
+    );
+
+    if (pickedTime == null) return; // El usuario canceló la selección de hora
+    if (!mounted) return;
+
+    // 3. COMBINAR FECHA Y HORA
+    final DateTime finalDateTime = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+
+    // 4. VERIFICAR DUPLICADOS (AHORA CON HORA)
+    // No permitir agregar la misma fecha Y HORA más de una vez
+    final isEditingSameDateTime = scheduleToEdit != null && finalDateTime.isAtSameMomentAs(scheduleToEdit.date);
+
+    if (!isEditingSameDateTime) {
+      final existingEntryIndex = _scheduleList.indexWhere((s) => s.date.isAtSameMomentAs(finalDateTime));
+      if (existingEntryIndex != -1) {
+        _showSnackBar('Ya existe una entrada para esta fecha y hora. Edítala o elimínala.', isError: true);
+        return;
+      }
+    }
+
+    // Validar que la fecha y hora no sean en el pasado (considerando un pequeño margen por si acaso)
+    if (finalDateTime.isBefore(DateTime.now().subtract(const Duration(minutes: 5)))) {
+      _showSnackBar('No puedes seleccionar una fecha y hora en el pasado.', isError: true);
+      return;
+    }
+
+
+    // 5. OBTENER CUPO
+    int? capacity = await _showCapacityDialog(context, initialCapacity: scheduleToEdit?.capacity);
+    if (capacity != null && capacity > 0) {
+      setState(() {
+        final newEntry = TicketSchedule(
+          date: finalDateTime, // Usar el DateTime combinado
+          capacity: capacity,
+          bookedTickets: scheduleToEdit?.bookedTickets ?? 0,
+        );
+        if (scheduleToEdit != null && index != null && index < _scheduleList.length) {
+          _scheduleList[index] = newEntry;
+        } else {
+          _scheduleList.add(newEntry);
         }
-      }
-
-      int? capacity = await _showCapacityDialog(context, initialCapacity: scheduleToEdit?.capacity);
-      if (capacity != null && capacity > 0) {
-        setState(() {
-          final newEntry = TicketSchedule(
-            date: pickedDate,
-            capacity: capacity,
-            bookedTickets: scheduleToEdit?.bookedTickets ?? 0,
-          );
-          if (scheduleToEdit != null && index != null && index < _scheduleList.length) {
-            _scheduleList[index] = newEntry;
-          } else {
-            _scheduleList.add(newEntry);
-          }
-          _scheduleList.sort((a, b) => a.date.compareTo(b.date));
-        });
-      }
+        _scheduleList.sort((a, b) => a.date.compareTo(b.date)); // Ordenar por fecha y hora
+      });
     }
   }
 
@@ -478,6 +517,10 @@ class _SubmitExperienceScreenState extends State<SubmitExperienceScreen> {
                 itemCount: _scheduleList.length,
                 itemBuilder: (context, index) {
                   final scheduleItem = _scheduleList[index];
+                  // FORMATEADOR PARA FECHA Y HORA
+                  final String formattedDateTime = DateFormat('EEEE, dd MMM yyyy - hh:mm a', 'es_MX').format(scheduleItem.date);
+                  // Alternativa para formato 24h: DateFormat('EEEE, dd MMM yyyy - HH:mm', 'es_MX')
+
                   return Card(
                     margin: const EdgeInsets.symmetric(vertical: 6.0),
                     elevation: 1.5,
@@ -489,7 +532,7 @@ class _SubmitExperienceScreenState extends State<SubmitExperienceScreen> {
                         child: const Icon(Icons.calendar_today_outlined, size: 20),
                       ),
                       title: Text(
-                        DateFormat('EEEE, dd MMM yyyy', 'es_MX').format(scheduleItem.date),
+                        formattedDateTime, // Usar el DateTime formateado
                         style: const TextStyle(fontWeight: FontWeight.w500),
                       ),
                       subtitle: Text('Cupo: ${scheduleItem.capacity} (Disponibles: ${scheduleItem.capacity - scheduleItem.bookedTickets})'),
@@ -498,12 +541,12 @@ class _SubmitExperienceScreenState extends State<SubmitExperienceScreen> {
                         children: [
                           IconButton(
                             icon: Icon(Icons.edit_outlined, color: Colors.blueGrey.shade600, size: 22),
-                            tooltip: 'Editar esta fecha/cupo',
+                            tooltip: 'Editar esta fecha/hora/cupo',
                             onPressed: () => _addOrEditScheduleEntry(scheduleToEdit: scheduleItem, index: index),
                           ),
                           IconButton(
                             icon: Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.error, size: 22),
-                            tooltip: 'Eliminar esta fecha/cupo',
+                            tooltip: 'Eliminar esta fecha/hora/cupo',
                             onPressed: () => _removeScheduleEntry(index),
                           ),
                         ],

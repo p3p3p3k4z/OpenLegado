@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../../models/experience.dart';
+import '../../models/experience.dart'; // Asegúrate que ExperienceAction, ExperienceStatus, TicketSchedule estén aquí o importados por Experience
 import '../../models/user.dart'; // Para obtener el AppUser y su rol
 import '../../widgets/experience_list_item.dart'; // Widget reutilizable
 import '../submit_experience_screen.dart'; // Para crear/editar experiencias
+import 'package:intl/intl.dart'; // Para DateFormat
 
 class CreatorPanelScreen extends StatefulWidget {
   const CreatorPanelScreen({super.key});
@@ -14,6 +15,9 @@ class CreatorPanelScreen extends StatefulWidget {
 }
 
 class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
+  // Constante para el nombre de la colección de experiencias.
+  static const String _experienceCollection = 'experiences';
+
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
@@ -27,13 +31,13 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
     _loadCurrentUser();
   }
 
+
   Future<void> _loadCurrentUser() async {
     _currentUser = _auth.currentUser;
     if (_currentUser != null) {
       final userDoc = await _firestore.collection('users').doc(_currentUser!.uid).get();
       if (userDoc.exists && mounted) {
         setState(() {
-          // Asegúrate de que el casteo sea seguro
           _currentAppUser = AppUser.fromFirestore(userDoc as DocumentSnapshot<Map<String, dynamic>>);
           _isLoadingUser = false;
         });
@@ -86,16 +90,15 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
 
     if (confirm == true) {
       try {
-        await _firestore.collection('experiences').doc(experience.id).delete();
+        // Se actualiza el nombre de la colección aquí.
+        await _firestore.collection(_experienceCollection).doc(experience.id).delete();
         _showSnackBar('Experiencia eliminada con éxito.');
-        // No es necesario setState aquí si el StreamBuilder maneja la actualización de la lista
       } catch (e) {
         _showSnackBar('Error al eliminar la experiencia: $e', isError: true);
       }
     }
   }
 
-  // MODIFICADO AQUÍ
   void _navigateToSubmitExperience({Experience? experienceToEdit}) {
     Navigator.push(
       context,
@@ -103,9 +106,6 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
         builder: (context) => SubmitExperienceScreen(
           experienceToEdit: experienceToEdit,
           onSubmitSuccess: () {
-            // Cuando SubmitExperienceScreen llama a este callback,
-            // simplemente cerramos SubmitExperienceScreen.
-            // El .then() de Navigator.push se encargará de refrescar.
             if (Navigator.canPop(context)) {
               Navigator.pop(context);
             }
@@ -113,14 +113,33 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
         ),
       ),
     ).then((_) {
-      // Este .then se ejecuta cuando se regresa de SubmitExperienceScreen
-      // (ya sea por el pop que acabamos de agregar en onSubmitSuccess o si el usuario usa el botón "atrás").
-      // Refresca la lista de experiencias en el panel.
       if (mounted) {
         setState(() {});
       }
     });
   }
+
+  // MÉTODO PARA FORMATEAR LA FECHA Y HORA DE UN SCHEDULE
+  String _formatScheduleDateTime(DateTime date) {
+    try {
+      return DateFormat('EEE, d MMM yyyy, hh:mm a', 'es_MX').format(date.toLocal());
+    } catch (e) {
+      print("Error en _formatScheduleDateTime (CreatorPanelScreen - es_MX no inicializado?): $e. Usando formato por defecto.");
+      return DateFormat('yyyy-MM-dd HH:mm').format(date.toLocal()); // Fallback
+    }
+  }
+
+  // Función de utilidad para formatear fechas generales (si la necesitas aquí también)
+  String _formatGeneralDate(DateTime? date) {
+    if (date == null) return 'N/A';
+    try {
+      return DateFormat('yyyy-MM-dd – kk:mm', 'es_MX').format(date.toLocal());
+    } catch (e) {
+      print("Error en _formatGeneralDate (CreatorPanelScreen - es_MX no inicializado?): $e. Usando formato por defecto.");
+      return DateFormat('yyyy-MM-dd HH:mm').format(date.toLocal()); // Fallback
+    }
+  }
+
 
   void _handleExperienceAction(ExperienceAction action, Experience experience) {
     switch (action) {
@@ -131,22 +150,59 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
         _deleteExperience(experience);
         break;
       case ExperienceAction.viewDetails:
+        final List<TicketSchedule> sortedSchedules = List.from(experience.schedule);
+        sortedSchedules.sort((a, b) => a.date.compareTo(b.date));
+
         showDialog(
             context: context,
             builder: (context) => AlertDialog(
               title: Text(experience.title),
               content: SingleChildScrollView(
-                child: Text("Categoría: ${experience.category}\n"
-                    "Estado: ${experience.status.toString().split('.').last}\n"
-                    "Ubicación: ${experience.location}\n"
-                  // Agrega más detalles si quieres
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text("ID: ${experience.id}"),
+                    Text("Categoría: ${experience.category}"),
+                    Text("Estado: ${experience.status.name}"),
+                    Text("Verificada: ${experience.isVerified ? 'Sí' : 'No'}"),
+                    Text("Destacada: ${experience.isFeatured ? 'Sí' : 'No'}"),
+                    Text("Ubicación: ${experience.location}"),
+                    Text("Precio: \$${experience.price.toStringAsFixed(2)}"),
+                    Text("Enviada: ${_formatGeneralDate(experience.submittedAt)}"),
+                    Text("Actualizada: ${_formatGeneralDate(experience.lastUpdatedAt)}"),
+                    const SizedBox(height: 8),
+                    Text("Descripción:", style: Theme.of(context).textTheme.titleSmall),
+                    Text(experience.description),
+                    const SizedBox(height: 16),
+
+                    if (sortedSchedules.isNotEmpty) ...[
+                      Text("Horarios Programados:", style: Theme.of(context).textTheme.titleSmall),
+                      const SizedBox(height: 4),
+                      ...sortedSchedules.map((s) {
+                        return Padding(
+                          padding: const EdgeInsets.only(left: 8.0, top: 4.0),
+                          child: Text(
+                            "• ${_formatScheduleDateTime(s.date)} - Cupo: ${s.capacity} (Reservados: ${s.bookedTickets})",
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        );
+                      }).toList(),
+                    ] else if (experience.maxCapacity > 0) ...[
+                      Text("Horarios: No específicos (usa capacidad general)", style: Theme.of(context).textTheme.titleSmall),
+                      Text("Capacidad Máx. General: ${experience.maxCapacity}", style: Theme.of(context).textTheme.bodySmall),
+                      Text("Reservados (General): ${experience.bookedTickets}", style: Theme.of(context).textTheme.bodySmall),
+                    ] else ...[
+                      Text("Horarios: No programados.", style: Theme.of(context).textTheme.titleSmall),
+                    ],
+                  ],
                 ),
               ),
               actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cerrar"))],
             ));
         break;
       default:
-        print("Acción no manejada para creador: $action");
+        print("Acción no manejada para creador: $action en experiencia: ${experience.title}");
     }
   }
 
@@ -168,11 +224,7 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
       );
     }
 
-    // Simplificamos la verificación de rol, ya que este panel es para creadores.
-    // Si un admin llega aquí, puede ser una lógica intencional o un error de navegación.
-    // Por ahora, solo nos aseguramos de que sea 'creator' o 'admin' (si admin puede ver esto)
-    // Sin embargo, el panel de "Mis experiencias" suele ser más específico del creadorId.
-    if (_currentAppUser!.role != 'creator' && _currentAppUser!.role != 'admin' ) { // He añadido admin aquí por si acaso, pero el query es por creatorId
+    if (_currentAppUser!.role != 'creator' && _currentAppUser!.role != 'admin') {
       return Scaffold(
         appBar: AppBar(title: const Text('Mis Experiencias')),
         body: const Center(
@@ -191,14 +243,15 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
           IconButton(
             icon: const Icon(Icons.add_circle_outline),
             tooltip: 'Crear Nueva Experiencia',
-            onPressed: () => _navigateToSubmitExperience(), // Llama sin argumentos para nueva experiencia
+            onPressed: () => _navigateToSubmitExperience(),
           ),
         ],
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        // Se actualiza el nombre de la colección en la consulta aquí.
         stream: _firestore
-            .collection('experiences')
-            .where('creatorId', isEqualTo: _currentUser!.uid) // Solo las del creador actual
+            .collection(_experienceCollection)
+            .where('creatorId', isEqualTo: _currentUser!.uid)
             .orderBy('lastUpdatedAt', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
@@ -227,11 +280,11 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
                     ElevatedButton.icon(
                       icon: const Icon(Icons.add),
                       label: const Text('Publicar mi Primera Experiencia'),
-                      onPressed: () => _navigateToSubmitExperience(), // Llama sin argumentos para nueva experiencia
+                      onPressed: () => _navigateToSubmitExperience(),
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                         backgroundColor: Theme.of(context).primaryColor,
-                        foregroundColor: Colors.white,
+                        foregroundColor: Colors.white, // Color del texto e icono
                       ),
                     )
                   ],
@@ -243,15 +296,15 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
           final experiences = snapshot.data!.docs.map((doc) => Experience.fromFirestore(doc)).toList();
 
           return ListView.builder(
-            padding: const EdgeInsets.only(top: 8, bottom: 80),
+            padding: const EdgeInsets.only(top: 8, bottom: 80), // Espacio para el FAB
             itemCount: experiences.length,
             itemBuilder: (context, index) {
               final experience = experiences[index];
               return ExperienceListItem(
                 experience: experience,
-                currentUserRole: _currentAppUser!.role,
-                currentUserId: _currentUser!.uid,
-                onAction: (action, exp) => _handleExperienceAction(action, exp), // Asegúrate que el onAction esté bien
+                currentUserRole: _currentAppUser!.role, // Rol del usuario actual
+                currentUserId: _currentUser!.uid,     // ID del usuario actual
+                onAction: (action, exp) => _handleExperienceAction(action, exp),
               );
             },
           );
@@ -260,7 +313,7 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
       floatingActionButton: FloatingActionButton.extended(
         icon: const Icon(Icons.add),
         label: const Text('Nueva Experiencia'),
-        onPressed: () => _navigateToSubmitExperience(), // Llama sin argumentos para nueva experiencia
+        onPressed: () => _navigateToSubmitExperience(),
         backgroundColor: Theme.of(context).colorScheme.secondary,
       ),
     );

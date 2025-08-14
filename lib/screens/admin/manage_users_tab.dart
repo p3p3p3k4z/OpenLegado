@@ -358,10 +358,11 @@ class _ManageUsersTabState extends State<ManageUsersTab> {
                           ),
                           // Dropdown para cambiar rol y Menú para otras acciones
                           SizedBox(
-                            width: 100, // Ajustar ancho si es necesario
+                            width: 120, // Ajustar ancho si es necesario
                             child: DropdownButtonFormField<String>(
                               value: user.role,
                               isDense: true,
+                              isExpanded: true,
                               decoration: InputDecoration(
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
