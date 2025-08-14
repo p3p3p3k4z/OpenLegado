@@ -30,6 +30,10 @@
 	<string>NSApplication</string>
 	<key>GADApplicationIdentifier</key>
     <string>ca-app-pub-3940256099942544~3347511713</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Esta app necesita acceso a tu ubicación para mostrarla en el mapa y ayudarte a encontrar lugares cercanos.</string>
+    <key>NSLocationAlwaysUsageDescription</key> <!-- Si la necesitas en background -->
+    <string>Esta app necesita acceso a tu ubicación para...</string>
 
 </dict>
 </plist>

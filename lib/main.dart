@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 // import 'package:flutter_svg/flutter_svg.dart'; // No se usa en el código que me pasaste para main o LegadoApp
 import 'screens/welcome_screen.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 // Importaciones de Firebase añadidas
 import 'package:firebase_core/firebase_core.dart';
@@ -19,7 +20,7 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-
+  await initializeDateFormatting('es_MX', null);
   // 3. Inicializa Servicios de Anuncios (condicionalmente)
   //    Usaremos las banderas de tu AppConfig
   if (AppConfig.adsEnabled) { // Asumiendo que tienes esta bandera global
