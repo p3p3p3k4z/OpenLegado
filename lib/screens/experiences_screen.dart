@@ -90,7 +90,7 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
             border: InputBorder.none,
             hintStyle: TextStyle(color: Colors.grey[600]),
           ),
-          style: const TextStyle(color: Color(0xFF5D4037), fontSize: 16),
+          style: const TextStyle(color: Color.fromARGB(255, 38, 238, 75), fontSize: 16),
           // onChanged: (value) { // El listener ya se encarga de _searchQuery
           //   setState(() {
           //     _searchQuery = value;
@@ -102,6 +102,7 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
           style: TextStyle(
             color: Color(0xFF8B4513),
             fontWeight: FontWeight.bold,
+            
           ),
         ),
         backgroundColor: Colors.white,
@@ -593,3 +594,8 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
     );
   }
 }
+
+const kColorFondo = Color(0xFFFFF0E0);
+const kColorSeleccion = Color(0xFFCC7163);
+const kColorTexto = Color(0xFF311F14);
+const kColorGris = Color(0xFF8D6E63);
