@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "285074268329",
+    "project_id": "legado-app-eef97",
+    "storage_bucket": "legado-app-eef97.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:285074268329:android:432f2cf1aab5cafc7109b8",
+        "android_client_info": {
+          "package_name": "com.example.legado_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCJ-kH12SRLufy6Jztc9gmJ96VE4AumurU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
