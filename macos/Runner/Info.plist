@@ -34,6 +34,17 @@
     <string>Esta app necesita acceso a tu ubicación para mostrarla en el mapa y ayudarte a encontrar lugares cercanos.</string>
     <key>NSLocationAlwaysUsageDescription</key> <!-- Si la necesitas en background -->
     <string>Esta app necesita acceso a tu ubicación para...</string>
+    <key>STRIPE_PUBLISHABLE_KEY</key>
+                <string>pk_test_TU_CLAVE_PUBLICABLE_DE_STRIPE</string>
+                <!-- Para Apple Pay (opcional, pero recomendado si lo usas) -->
+                <key>UIRequiredDeviceCapabilities</key>
+                <array>
+                    <string>armv7</string>
+                </array>
+                <key>LSApplicationQueriesSchemes</key>
+                <array>
+                     <string>stripe</string>
+                </array>
 
 </dict>
 </plist>

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // Importa Firebase Authentication
-import 'main_navigation.dart'; // Asegúrate de que esta importación sea correcta
-import 'register_screen.dart'; // Asegúrate de que esta importación sea correcta
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // <<< AÑADIDO: Importar Firestore
+import 'main_navigation.dart';
+import 'register_screen.dart';
 
 /// Pantalla de inicio de sesión de la aplicación.
 /// Permite a los usuarios ingresar sus credenciales para acceder utilizando Firebase Authentication.
@@ -25,16 +26,90 @@ class _LoginScreenState extends State<LoginScreen> {
         _isLoading = true;
       });
       try {
-        await FirebaseAuth.instance.signInWithEmailAndPassword(
+        // 1. Autenticar con Firebase (tu código original)
+        UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
-        if (mounted) { // Buena práctica: verificar si el widget sigue montado
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const MainNavigation()),
-          );
+
+        // <<< INICIO DE LA LÓGICA DE VERIFICACIÓN DE BANEO >>>
+        User? firebaseUser = userCredential.user;
+        if (firebaseUser != null) {
+          DocumentSnapshot userDoc;
+          try {
+            userDoc = await FirebaseFirestore.instance
+                .collection('users') // Asume que tu colección se llama 'users'
+                .doc(firebaseUser.uid)
+                .get();
+          } catch (firestoreError) {
+            // Error al intentar obtener el documento de Firestore
+            if (mounted) {
+              _showSnackBar(
+                  'Error al verificar estado de la cuenta. Inténtalo de nuevo.',
+                  Colors.orange);
+              // Considera cerrar sesión si la verificación falla críticamente
+              // await FirebaseAuth.instance.signOut();
+            }
+            if (mounted) setState(() => _isLoading = false);
+            return; // Detener el flujo si no se puede verificar
+          }
+
+          if (userDoc.exists) {
+            // Asume que el campo se llama 'isDisabled' y es booleano
+            // El '?? false' maneja el caso donde el campo no exista, tratándolo como no baneado.
+            bool isDisabled = false;
+            try {
+              // Intenta obtener el campo 'isDisabled'.
+              // Si el campo no existe, userDoc.get() podría devolver null o lanzar un error
+              // dependiendo de la configuración de Firestore y si se usa data() vs get().
+              // Usar data() y luego acceder al campo es más seguro para chequear existencia.
+              Map<String, dynamic>? userData = userDoc.data() as Map<String, dynamic>?;
+              if (userData != null && userData.containsKey('isDisabled')) {
+                isDisabled = userData['isDisabled'] as bool? ?? false;
+              }
+              // Si 'isDisabled' no está en userData, se mantendrá en 'false' (no baneado).
+            } catch (e) {
+              // En caso de error al castear o acceder, asumir no baneado pero loguear.
+              print("Advertencia: No se pudo leer 'isDisabled' para ${firebaseUser.uid}. Asumiendo no baneado. Error: $e");
+              isDisabled = false; // Por seguridad o UX, decide si esto debería ser true.
+            }
+
+
+            if (isDisabled) {
+              await FirebaseAuth.instance.signOut(); // Desloguear al usuario baneado
+              if (mounted) {
+                _showSnackBar(
+                    'Tu cuenta ha sido suspendida. Por favor, contacta con soporte.',
+                    Colors.red,
+                    duration: const Duration(seconds: 5)); // SnackBar más largo
+              }
+            } else {
+              // Usuario no baneado, proceder a la navegación
+              if (mounted) {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (context) => const MainNavigation()),
+                );
+              }
+            }
+          } else {
+            // El documento del usuario no existe en Firestore (estado inconsistente)
+            await FirebaseAuth.instance.signOut();
+            if (mounted) {
+              _showSnackBar(
+                  'Perfil de usuario no encontrado. Contacta con soporte.',
+                  Colors.orange);
+            }
+          }
+        } else {
+          // Esto no debería ocurrir si signInWithEmailAndPassword tuvo éxito sin lanzar excepción.
+          // Pero por si acaso:
+          if (mounted) {
+            _showSnackBar('Error inesperado obteniendo datos de usuario.', Colors.red);
+          }
         }
+        // <<< FIN DE LA LÓGICA DE VERIFICACIÓN DE BANEO >>>
+
       } on FirebaseAuthException catch (e) {
         String message;
         if (e.code == 'user-not-found') {
@@ -45,13 +120,14 @@ class _LoginScreenState extends State<LoginScreen> {
           message = 'El formato del correo electrónico es inválido.';
         } else if (e.code == 'too-many-requests') {
           message = 'Demasiados intentos. Inténtalo más tarde.';
+        } else if (e.code == 'network-request-failed') { // Añadido para errores de red
+          message = 'Error de red. Verifica tu conexión.';
         }
-        // Agrega más códigos de error comunes si es necesario
-        // e.g. 'network-request-failed', 'user-disabled'
+        // No es necesario manejar 'user-disabled' de FirebaseAuthException aquí explícitamente
+        // si tu lógica de 'isDisabled' en Firestore es la principal.
         else {
           message = 'Error al iniciar sesión. Inténtalo de nuevo.';
-          // Para depuración, podrías loguear el e.message completo
-          // print('Firebase Auth Error: ${e.message}');
+          // print('Firebase Auth Error: ${e.code} - ${e.message}');
         }
         if (mounted) {
           _showSnackBar(message, Colors.red);
@@ -72,19 +148,21 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _showSnackBar(String message, Color color) {
-    if (!mounted) return; // No mostrar SnackBar si el widget no está montado
+  // Modificado para aceptar una duración opcional
+  void _showSnackBar(String message, Color color, {Duration duration = const Duration(seconds: 3)}) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: color,
-        duration: const Duration(seconds: 3),
+        duration: duration,
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    // ... Tu código de build existente ...
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -328,3 +406,4 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 }
+
