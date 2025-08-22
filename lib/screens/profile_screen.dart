@@ -9,9 +9,10 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'welcome_screen.dart';
-import '../models/user.dart'; // TU MODELO AppUser ACTUALIZADO
+import '../models/user.dart';
 import '../models/experience.dart';
 import 'experience_detail_screen.dart';
+import './edit_profile_screen.dart';
 
 // Clase Booking (sin cambios respecto a tu original)
 class Booking {
@@ -639,10 +640,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  // Dentro de la clase _ProfileScreenState
-
-// ... (tu código existente) ...
-
 // NUEVO WIDGET: Para mostrar la biografía
   Widget _buildBioSection(AppUser user) {
     // Solo mostrar si la bio existe y no está vacía
@@ -1039,6 +1036,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildProfileOptions(AppUser user) {
     bool isActuallyGuest = _isGuestMode(user);
+    final firebaseUser = _auth.currentUser;
+    bool isViewingOwnProfile = (firebaseUser != null && user.uid == firebaseUser.uid && !isActuallyGuest);
+
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 5),
       decoration: BoxDecoration(
@@ -1048,11 +1048,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       child: Column(
         children: [
-          if (!isActuallyGuest) ...[
+          if (isViewingOwnProfile) ...[ // Solo mostrar si es el perfil propio y no es invitado
             _ProfileOptionTile(
               title: 'Editar Perfil',
-              icon: Icons.person_outline,
-              onTap: () => _showSnackBar('Editar perfil (no implementado).', Colors.blueGrey),
+              icon: Icons.edit_outlined, // Cambiado el icono para más claridad
+              onTap: () {
+                // Asegurarnos de que _currentUser (que es 'user' aquí) no sea null
+                // y que tengamos los datos cargados antes de navegar.
+                if (_currentUser != null) {
+                  Navigator.push<bool>( // Especificamos <bool> porque esperamos un booleano de EditProfileScreen
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => EditProfileScreen(
+                        currentUserData: _currentUser!, // Pasamos los datos actuales del usuario
+                      ),
+                    ),
+                  ).then((changesWereSaved) {
+                    // EditProfileScreen devolverá true si se guardaron cambios.
+                    // El StreamSubscription (_userSubscription) debería actualizar la UI automáticamente
+                    // cuando los datos en Firestore cambian.
+                    // Así que una llamada a _loadUserProfile() podría no ser estrictamente necesaria aquí,
+                    // pero no está de más si quieres forzar una recarga o mostrar un feedback inmediato.
+                    if (changesWereSaved == true && mounted) {
+                      // Opcional: _loadUserProfile(); // Descomentar si notas que la UI no se refresca sola
+                      _showSnackBar('Perfil actualizado. Los cambios se reflejarán en breve.', Colors.green);
+                    }
+                  });
+                } else {
+                  // Esto no debería suceder si isViewingOwnProfile es true y _currentUser está cargado.
+                  _showSnackBar('No se pueden cargar los datos para editar el perfil.', Colors.orange);
+                }
+              },
               iconColor: Colors.blueAccent.shade700,
             ),
             const Divider(height: 1, indent: 50),
