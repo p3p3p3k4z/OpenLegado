@@ -12,6 +12,8 @@ import '../models/user.dart'; // Modelo AppUser para obtener nombre de usuario
 import '../models/booking.dart';
 import '../models/review.dart'; // Modelo Review para la sección de comentarios
 
+import 'widgets/experience_creator_card.dart';
+
 /// Pantalla que muestra los detalles completos de una experiencia.
 class ExperienceDetailScreen extends StatefulWidget {
   final Experience experience;
@@ -50,8 +52,10 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
   // Para refrescar los datos de la experiencia
   late Experience _currentExperience;
 
+  // estados del creador
+  AppUser? _experienceCreator;
+  bool _isLoadingCreator = true; // Empezar como true para mostrar loading
 
-  @override
   @override
   void initState() {
     super.initState();
@@ -75,13 +79,17 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
     _initMap();
     _fetchUserData();
     _fetchReviews();
+    _fetchExperienceCreator();
   }
 
   @override
   void dispose() {
     _commentController.dispose();
+    _userSubscription?.cancel();
     super.dispose();
   }
+
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userSubscription;
 
   /// Inicializa el schedule por defecto si hay alguno disponible.
   void _initializeDefaultSchedule() {
@@ -193,14 +201,77 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
   /// Obtiene los datos del usuario actual.
   Future<void> _fetchUserData() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-    try {
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+    if (user == null) {
+      if (mounted) setState(() => _currentUserData = null); // Limpiar si no hay usuario
+      return;
+    }
+    // Cancelar suscripción anterior si existe
+    await _userSubscription?.cancel();
+    _userSubscription = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .snapshots() // Usar snapshots para actualizaciones en tiempo real si es necesario
+        .listen((userDoc) {
       if (userDoc.exists && mounted) {
         setState(() => _currentUserData = AppUser.fromFirestore(userDoc));
+      } else if (mounted) {
+        setState(() => _currentUserData = null); // Usuario no encontrado en Firestore
+        print('Documento del usuario actual no encontrado: ${user.uid}');
+      }
+    }, onError: (error) {
+      print('Error al obtener datos del usuario (stream): $error');
+      if (mounted) setState(() => _currentUserData = null);
+    });
+  }
+
+  // --- AÑADIDO: Función para obtener los datos del creador de la experiencia ---
+  Future<void> _fetchExperienceCreator() async {
+
+    final String creatorIdToFetch = widget.experience.creatorId;
+
+    if (creatorIdToFetch.isEmpty) {
+      print("ID del creador no encontrado en la experiencia (campo creatorId vacío).");
+      if (mounted) {
+        setState(() {
+          _experienceCreator = null;
+          _isLoadingCreator = false;
+        });
+      }
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() => _isLoadingCreator = true);
+
+    try {
+      final docSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(creatorIdToFetch) // Usa la variable local
+          .get();
+
+      if (docSnapshot.exists && mounted) {
+        setState(() {
+          _experienceCreator = AppUser.fromFirestore(docSnapshot);
+          _isLoadingCreator = false;
+        });
+      } else {
+        if (mounted) {
+          setState(() {
+            _experienceCreator = null;
+            _isLoadingCreator = false;
+          });
+        }
+        print('Documento del creador no encontrado para ID: $creatorIdToFetch');
       }
     } catch (e) {
-      print('Error al obtener datos del usuario: $e');
+      if (mounted) {
+        setState(() {
+          _experienceCreator = null;
+          _isLoadingCreator = false;
+        });
+      }
+      print('Error al obtener datos del creador: $e');
+      _showSnackBar('No se pudieron cargar los datos del anfitrión.', Colors.orange);
     }
   }
 
@@ -484,6 +555,7 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
           await _refreshExperienceData();
           await _fetchReviews();
           await _checkIfFavorite();
+          await _fetchExperienceCreator();
         },
         child: CustomScrollView(
           slivers: [
@@ -498,6 +570,17 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
                     const SizedBox(height: 16),
                     _buildHighlights(),
                     const SizedBox(height: 24),
+
+                    // --- AÑADIDO: Sección de información del creador ---
+                    // Se inserta antes de la descripción. Ajusta la posición si prefieres.
+                    ExperienceCreatorInfoCard(
+                      creator: _experienceCreator,
+                      isLoading: _isLoadingCreator,
+                    ),
+                    // Añadir un SizedBox si el creador es visible y quieres espacio antes de la descripción
+                    if (_experienceCreator != null || _isLoadingCreator)
+                      const SizedBox(height: 24),
+
                     const Text('Descripción', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF5D4037))),
                     const SizedBox(height: 8),
                     Text(_currentExperience.description, style: TextStyle(fontSize: 15, height: 1.5, color: Colors.grey[800])),

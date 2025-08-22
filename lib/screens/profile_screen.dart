@@ -452,14 +452,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _buildProfileHeader(displayUser),
+              _buildProfileHeader(displayUser), // Tu cabecera existente
               const SizedBox(height: 24),
+
+              // --- AÑADIDO: Sección de Biografía ---
+              _buildBioSection(displayUser),
+              // Añadir un SizedBox si ambos (bio y stats) son visibles y quieres espacio
+              if (displayUser.bio != null && displayUser.bio!.trim().isNotEmpty)
+                const SizedBox(height: 24),
+
+
               if (!_isGuestMode(displayUser)) ...[
-                // _buildStatsSection ya usa los campos del modelo AppUser,
-                // que ahora tienen valores por defecto.
                 _buildStatsSection(displayUser),
                 const SizedBox(height: 24),
               ],
+
+              // --- AÑADIDO: Sección de Galería ---
+              // (Ajusta la condición de 'role' en _buildGallerySection según tus necesidades)
+              _buildGallerySection(displayUser),
+              // Añadir un SizedBox si la galería es visible y quieres espacio antes de favoritos
+              if ((displayUser.role.toLowerCase() == 'artisan' || displayUser.role.toLowerCase() == 'creator') && displayUser.galleryImageUrls.isNotEmpty)
+                const SizedBox(height: 24),
+
+
               _buildFavoritesSection(displayUser),
               const SizedBox(height: 24),
               _buildBookingHistorySection(displayUser),
@@ -622,6 +637,207 @@ class _ProfileScreenState extends State<ProfileScreen> {
       case 'guest':
       default: return Colors.grey.shade600;
     }
+  }
+
+  // Dentro de la clase _ProfileScreenState
+
+// ... (tu código existente) ...
+
+// NUEVO WIDGET: Para mostrar la biografía
+  Widget _buildBioSection(AppUser user) {
+    // Solo mostrar si la bio existe y no está vacía
+    if (user.bio == null || user.bio!.trim().isEmpty) {
+      // Si eres el dueño del perfil y no es modo invitado, podrías mostrar un placeholder para editar
+      if (!_isGuestMode(user) && user.uid == _auth.currentUser?.uid) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Sobre mí',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF8B4513)),
+              ),
+              SizedBox(height: 8),
+              InkWell(
+                onTap: () {
+                  // TODO: Navegar a la pantalla de Editar Perfil, sección biografía
+                  _showSnackBar('Editar biografía (no implementado).', Colors.blueGrey);
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.grey[300]!)
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.edit_note_outlined, color: Colors.grey[600]),
+                      SizedBox(width: 8),
+                      Text('Añade una breve descripción sobre ti', style: TextStyle(color: Colors.grey[700])),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+      return SizedBox.shrink(); // No mostrar nada si no hay bio y no es el perfil propio
+    }
+
+    // Si hay bio, mostrarla
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Sobre mí',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF8B4513)),
+        ),
+        SizedBox(height: 8),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16.0),
+          decoration: BoxDecoration(
+            color: Colors.white, // O un color de fondo sutil
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade200),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.grey.withOpacity(0.08),
+                spreadRadius: 1,
+                blurRadius: 5,
+                offset: Offset(0, 2),
+              )
+            ],
+          ),
+          child: Text(
+            user.bio!,
+            style: TextStyle(fontSize: 15, height: 1.5, color: Colors.grey[800]),
+            textAlign: TextAlign.justify, // O TextAlign.start
+          ),
+        ),
+      ],
+    );
+  }
+
+// NUEVO WIDGET: Para mostrar la galería de imágenes de muestra
+  Widget _buildGallerySection(AppUser user) {
+    // Solo mostrar para roles específicos (ej. 'artisan') y si hay imágenes
+    // AJUSTA EL ROL SEGÚN TU LÓGICA ('creator', 'artisan', etc.)
+    if (user.role.toLowerCase() != 'artisan' && user.role.toLowerCase() != 'creator') {
+      return SizedBox.shrink(); // No mostrar para usuarios normales o invitados (a menos que quieras)
+    }
+
+    if (user.galleryImageUrls.isEmpty) {
+      // Si es el perfil del artesano y no hay imágenes, mostrar un placeholder para añadir
+      if (!_isGuestMode(user) && user.uid == _auth.currentUser?.uid) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Mi Galería de Muestra',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF8B4513)),
+              ),
+              SizedBox(height: 8),
+              InkWell(
+                onTap: () {
+                  // TODO: Navegar a la pantalla de Editar Perfil, sección galería
+                  _showSnackBar('Editar galería (no implementado).', Colors.blueGrey);
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.grey[300]!)
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.add_photo_alternate_outlined, color: Colors.grey[600]),
+                      SizedBox(width: 8),
+                      Text('Añade imágenes de muestra de tu trabajo', style: TextStyle(color: Colors.grey[700])),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+      return SizedBox.shrink(); // No mostrar si no es artesano o no hay imágenes y no es el perfil propio
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Mi Galería de Muestra',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF8B4513)),
+        ),
+        SizedBox(height: 12),
+        SizedBox(
+          height: 160, // Ajusta la altura según necesites
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: user.galleryImageUrls.length,
+            itemBuilder: (context, index) {
+              String imageUrlOrPath = user.galleryImageUrls[index];
+              ImageProvider imageProvider;
+
+              if (imageUrlOrPath.startsWith('http')) {
+                imageProvider = NetworkImage(imageUrlOrPath);
+              } else if (imageUrlOrPath.startsWith('assets/')) {
+                imageProvider = AssetImage(imageUrlOrPath);
+              } else {
+                // Placeholder si la URL/path no es reconocido (o añade una imagen de error por defecto)
+                imageProvider = AssetImage('assets/images/placeholder.png'); // Asegúrate que este asset exista
+              }
+
+              return Padding(
+                padding: const EdgeInsets.only(right: 10.0),
+                child: Card( // Envuelve en una Card para un mejor efecto visual
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  clipBehavior: Clip.antiAlias, // Importante para que el ClipRRect dentro funcione bien con la Card
+                  child: SizedBox( // SizedBox para forzar dimensiones si la imagen es pequeña
+                    width: 160, // Ancho de cada item de la galería
+                    height: 160, // Alto de cada item de la galería
+                    child: Image(
+                      image: imageProvider,
+                      fit: BoxFit.cover,
+                      loadingBuilder: (BuildContext context, Widget child, ImageChunkEvent? loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return Center(
+                          child: CircularProgressIndicator(
+                            value: loadingProgress.expectedTotalBytes != null
+                                ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                                : null,
+                            strokeWidth: 2,
+                          ),
+                        );
+                      },
+                      errorBuilder: (context, error, stackTrace) {
+                        print("Error cargando imagen de galería: $imageUrlOrPath, $error");
+                        return Container(
+                          color: Colors.grey[200],
+                          child: Icon(Icons.broken_image_outlined, size: 40, color: Colors.grey[400]),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 
   // _buildStatsSection ya usa los campos del modelo AppUser que vienen con defaults.
