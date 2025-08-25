@@ -66,3 +66,4 @@ flutter:
   assets:
     - assets/
     - assets/legado_logo_transparente.png
+    - assets/navigation_icons/
