@@ -121,14 +121,14 @@ class _MainNavigationState extends State<MainNavigation> {
           const ExperiencesScreen(),
         ]);
         navBarItems.addAll([
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.explore_outlined),
-            activeIcon: Icon(Icons.explore),
-            label: 'Explorar',
+          BottomNavigationBarItem(
+            icon: Image.asset("assets/navigation_icons/hogar.png", width: 25, height: 25),
+            activeIcon: Image.asset("assets/navigation_icons/hogar_rojo.png", width: 25, height: 25),
+            label: 'Inicio',
           ),
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_today_outlined),
-            activeIcon: Icon(Icons.calendar_today),
+          BottomNavigationBarItem(
+            icon: Image.asset("assets/navigation_icons/destellos.png", width: 25, height: 25),
+            activeIcon: Image.asset("assets/navigation_icons/destellos_rojo.png", width: 25, height: 25),
             label: 'Experiencias',
           ),
         ]);
@@ -216,10 +216,10 @@ class _MainNavigationState extends State<MainNavigation> {
         // Pestaña de Perfil (siempre al final para todos)
         screensToShow.add(const ProfileScreen());
         navBarItems.add(
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            activeIcon: Icon(Icons.person),
-            label: 'Mi Perfil',
+          BottomNavigationBarItem(
+            icon: Image.asset("assets/navigation_icons/usuario.png", width: 25, height: 25),
+            activeIcon: Image.asset("assets/navigation_icons/usuario_rojo.png", width: 25, height: 25),
+            label: 'Perfil',
           ),
         );
 
@@ -254,7 +254,7 @@ class _MainNavigationState extends State<MainNavigation> {
               : Container(
             decoration: BoxDecoration(
               border: Border(
-                top: BorderSide(color: const Color(0xFFE67E22), width: 1.5),
+                top: BorderSide( color: Colors.white, width: 5),
               ),
               boxShadow: [
                 BoxShadow(
@@ -268,13 +268,21 @@ class _MainNavigationState extends State<MainNavigation> {
               currentIndex: (_selectedIndex >= 0 && _selectedIndex < navBarItems.length) ? _selectedIndex : 0,
               onTap: (index) => _onItemTapped(index, screensToShow), // Pasa screensToShow actual
               type: BottomNavigationBarType.fixed,
-              selectedItemColor: const Color(0xFFE67E22),
-              unselectedItemColor: const Color(0xFF757575),
+              selectedItemColor: const Color(0xFF952E07),
+              unselectedItemColor: const Color.fromARGB(255, 100, 100, 100),
               backgroundColor: Colors.white,
               elevation: 0,
               selectedFontSize: 12,
               unselectedFontSize: 12,
               items: navBarItems,
+              selectedLabelStyle: const TextStyle(
+                fontFamily: 'Montserrat',
+                fontWeight: FontWeight.w600,
+              ),
+              unselectedLabelStyle: const TextStyle(
+                fontFamily: 'Montserrat',
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         );

@@ -1,45 +1,59 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../models/experience.dart'; // Asegúrate que la ruta sea correcta
-import 'experience_detail_screen.dart'; // Asegúrate que la ruta sea correcta
+import '../models/experience.dart';
+import 'experience_detail_screen.dart';
+
+// Paleta
+const Color kBackgroundColor = Color(0xFFFFF0E0);
+const Color kAccentColor = Color(0xFF952E07);
+const Color kTextColor = Color(0xFF311F14);
+
+// Fuente
+const String kFontFamily = 'Montserrat';
 
 class ExperiencesScreen extends StatefulWidget {
   const ExperiencesScreen({super.key});
-
   @override
   _ExperiencesScreenState createState() => _ExperiencesScreenState();
 }
 
 class _ExperiencesScreenState extends State<ExperiencesScreen> {
-  String _selectedCategory = 'Todas';
-  String _searchQuery = ''; // Para la búsqueda por nombre
+  List<String> _selectedCategories = []; // Solo usamos la lista
+  String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
-  bool _isSearching = false; // Para controlar la visibilidad del TextField de búsqueda
+  bool _isSearching = false;
 
-  // Lista estática de categorías (pueden cargarse desde Firestore si hay una colección de categorías).
-  // Si estas categorías también están en ExperienceData, podrías obtenerlas de ahí
-  // para mantener una única fuente de verdad: final List<String> _categories = ExperienceData.getCategories();
   final List<String> _categories = [
     'Todas', 'Gastronomía', 'Arte y Artesanía', 'Patrimonio',
     'Naturaleza y Aventura', 'Música y Danza', 'Bienestar',
   ];
 
+  // Filtros adicionales (fechas y precio) — usados por el modal de filtros
+  DateTime? _filterStartDate;
+  DateTime? _filterEndDate;
+  int? _minPrice;
+  int? _maxPrice;
+
+  // Estado (entidad federativa)
+String? _selectedState; // null = sin filtro
+
+// Lista de estados de México (incluye CDMX)
+final List<String> _mexicoStates = const [
+  'Aguascalientes', 'Baja California', 'Baja California Sur', 'Campeche',
+  'Coahuila', 'Colima', 'Chiapas', 'Chihuahua', 'Ciudad de México',
+  'Durango', 'Guanajuato', 'Guerrero', 'Hidalgo', 'Jalisco', 'México',
+  'Michoacán', 'Morelos', 'Nayarit', 'Nuevo León', 'Oaxaca', 'Puebla',
+  'Querétaro', 'Quintana Roo', 'San Luis Potosí', 'Sinaloa', 'Sonora',
+  'Tabasco', 'Tamaulipas', 'Tlaxcala', 'Veracruz', 'Yucatán', 'Zacatecas',
+];
+
   @override
   void initState() {
     super.initState();
     _searchController.addListener(() {
-      if (mounted) {
-        // No es necesario llamar a setState aquí directamente si _getExperiencesStream no
-        // depende directamente de _searchQuery para la consulta a Firestore.
-        // El StreamBuilder se reconstruirá y el filtrado se aplicará en su builder.
-        // Pero si quieres una reacción más explícita o tienes otros elementos UI
-        // que dependen de _searchQuery fuera del StreamBuilder, puedes hacer setState aquí.
-        // Por ahora, lo dejamos que el StreamBuilder maneje el re-renderizado.
-        if (_searchQuery != _searchController.text) {
-          setState(() { // setState para que el StreamBuilder pueda refiltrar
-            _searchQuery = _searchController.text;
-          });
-        }
+      if (!mounted) return;
+      if (_searchQuery != _searchController.text) {
+        setState(() => _searchQuery = _searchController.text);
       }
     });
   }
@@ -52,41 +66,18 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
 
   Stream<List<Experience>> _getExperiencesStream() {
     Query<Map<String, dynamic>> query =
-    FirebaseFirestore.instance.collection('experiences');
+        FirebaseFirestore.instance.collection('experiences');
 
-    if (_selectedCategory != 'Todas') {
-      query = query.where('category', isEqualTo: _selectedCategory);
+    if (_selectedCategories.isNotEmpty) {
+      query = query.where('category', whereIn: _selectedCategories);
     }
-
-    // Nota: Si ordenas por un campo y luego filtras por otro en el cliente (como el nombre),
-    // el orden inicial podría no ser el final después del filtro de nombre.
-    // Si la búsqueda por nombre es prioritaria, podrías considerar no ordenar aquí y
-    // ordenar la lista filtrada en el cliente. O si Firestore lo permite, añadir
-    // el orderBy del campo de búsqueda aquí también (requiere índices).
     query = query.orderBy('title', descending: false);
 
     return query.snapshots().map((snapshot) {
-      List<Experience> experiences = snapshot.docs
+      final experiences = snapshot.docs
           .map((doc) => Experience.fromFirestore(doc))
-      // --- MODIFICACIÓN AQUÍ: Filtrado en el cliente ---
-          .where((experience) {
-        // Asumimos que tu Experience.fromFirestore maneja el caso donde 'status'
-        // no está en el doc.data() y le asigna un valor por defecto o null.
-        // Si experience.status es null (o un valor por defecto que indique "no seteado"),
-        // entonces la experiencia pasa.
-        // Si experience.status tiene un valor, debe ser diferente de ExperienceStatus.rejected.
-
-        // Primero, verifica cómo tu modelo `Experience` maneja un campo 'status' ausente.
-        // Si `experience.status` puede ser `null` cuando el campo no existe:
-        if (experience.status == null) {
-          return true; // Pasa si el estado no está definido en el documento
-        }
-        // Si tiene estado, verifica que no sea rejected.
-        // Asegúrate que tu enum ExperienceStatus y el string "rejected" coincidan.
-        return experience.status != ExperienceStatus.rejected;
-      })
+          .where((e) => e.status != ExperienceStatus.rejected)
           .toList();
-
       return experiences;
     });
   }
@@ -94,122 +85,182 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: kBackgroundColor,
+
+      // ───────── NAVIGATION BAR (AppBar) ─────────
       appBar: AppBar(
-        title: _isSearching
-            ? TextField(
-          controller: _searchController,
-          autofocus: true,
-          decoration: InputDecoration(
-            hintText: 'Buscar experiencia...',
-            border: InputBorder.none,
-            hintStyle: TextStyle(color: Colors.grey[600]),
-          ),
-          style: const TextStyle(color: Color(0xFF5D4037), fontSize: 16),
-          // onChanged: (value) { // El listener ya se encarga de _searchQuery
-          //   setState(() {
-          //     _searchQuery = value;
-          //   });
-          // },
-        )
-            : const Text(
+        backgroundColor: Colors.white,
+        centerTitle: true,
+        title: const Text(
           'Experiencias',
           style: TextStyle(
-            color: Color(0xFF8B4513),
-            fontWeight: FontWeight.bold,
+            color: kTextColor,
+            fontWeight: FontWeight.w700,
+            fontFamily: kFontFamily,
+            fontSize: 20,
           ),
         ),
-        backgroundColor: Colors.white,
-        elevation: _isSearching ? 1 : 0, // Elevación sutil si se busca
-        surfaceTintColor: Colors.transparent,
-        actions: [
-          IconButton(
-            icon: Icon(_isSearching ? Icons.close_rounded : Icons.search_rounded,
-                color: const Color(0xFFE67E22)),
-            tooltip: _isSearching ? 'Cerrar búsqueda' : 'Buscar',
-            onPressed: () {
-              setState(() {
-                if (_isSearching) {
-                  _searchController.clear(); // Limpia el texto y _searchQuery via listener
-                }
-                _isSearching = !_isSearching;
-                if (!_isSearching && _searchController.text.isNotEmpty) {
-                  _searchController.clear();
-                }
-                // Si se activa la búsqueda, el autofocus del TextField debería funcionar
-              });
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.filter_list_rounded, color: Color(0xFFE67E22)), // Icono de tu versión
-            tooltip: 'Filtrar',
-            onPressed: () {
-              // Si la búsqueda está activa, opcionalmente ciérrala
-              if (_isSearching) {
-                setState(() {
-                  _isSearching = false;
-                  // _searchController.clear(); // Opcional: limpiar búsqueda al abrir filtros
-                });
-              }
-              _showFilterBottomSheet(context);
-            },
-          ),
-        ],
+        iconTheme: const IconThemeData(color: kTextColor),
       ),
+      // ───────────────────────────────────────────
+
       body: Column(
         children: [
+          // ===== Buscador =====
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              10,12,10,0
+            ), // PADDING-- separación externa del bloque buscador respecto a los bordes del Scaffold
+            child: Row(
+              children: [
+                // Campo de búsqueda
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    textInputAction: TextInputAction.search,
+                    style: const TextStyle(fontFamily: kFontFamily),
+                    decoration: InputDecoration(
+                      hintText: 'Buscar',
+                      hintStyle: const TextStyle(fontFamily: kFontFamily),
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      isDense: true,
+                      filled: true,
+                      fillColor: Colors.white,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 12,
+                      ), // PADDING-- relleno interno del TextField: ancho a los lados y alto arriba/abajo
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Colors.white),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: Colors.white),
+                      ),
+                      focusedBorder: const OutlineInputBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(14)),
+                        borderSide: BorderSide(color: kAccentColor, width: 1.5),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                // Botón de filtros
+                SizedBox(
+                  height: 44,
+                  width: 44,
+                  child: Material(
+                    color: Color(0xFF952E07),
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => _showFilterBottomSheet(context),
+                      child: const Center(
+                        child: Icon(Icons.tune_rounded, color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // ===== Chips de categorías =====
           Container(
-            height: 60,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            height: 56,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            // PADDING-- margen interno lateral del contenedor de chips para que no peguen a los bordes
             decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border(bottom: BorderSide(color: Colors.grey[200]!, width: 1.0))
+              color: kBackgroundColor,
+              border: Border(
+                bottom: BorderSide(color: Colors.grey[200]!, width: 1),
+              ),
             ),
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               itemCount: _categories.length,
-              itemBuilder: (context, index) {
-                final category = _categories[index];
+              itemBuilder: (_, i) {
+                final c = _categories[i];
                 return Padding(
-                  padding: const EdgeInsets.only(right: 8.0),
-                  child: _buildFilterChip(category, _selectedCategory == category),
+                  padding: const EdgeInsets.only(right: 8),
+                  // PADDING-- espacio entre chip y chip
+                  child: _buildFilterChip(c, c == 'Todas' ? _selectedCategories.isEmpty : _selectedCategories.contains(c)),
                 );
               },
             ),
           ),
+
+          // ===== Lista =====
           Expanded(
             child: StreamBuilder<List<Experience>>(
               stream: _getExperiencesStream(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator(color: Color(0xFFE67E22)));
+                  return const Center(
+                    child: CircularProgressIndicator(color: kAccentColor),
+                  );
                 }
                 if (snapshot.hasError) {
-                  print("Error en StreamBuilder: ${snapshot.error}");
                   return Center(
-                      child: Text('Error al cargar experiencias: ${snapshot.error}',
-                          style: TextStyle(color: Colors.red.shade700)));
-                }
-                if (!snapshot.hasData || snapshot.data!.isEmpty && _searchQuery.isEmpty && _selectedCategory == 'Todas') {
-                  // Muestra "No hay experiencias" solo si no hay datos de origen y no hay filtros activos
-                  return const Center(child: Text('No hay experiencias disponibles actualmente.'));
+                    child: Text(
+                      'Error al cargar experiencias: ${snapshot.error}',
+                      style: TextStyle(
+                        color: Colors.red.shade700,
+                        fontFamily: kFontFamily,
+                      ),
+                    ),
+                  );
                 }
 
                 List<Experience> experiences = snapshot.data ?? [];
 
-                // Aplicar filtro de búsqueda por nombre aquí, sobre los datos del Stream
-                if (_searchQuery.isNotEmpty) {
-                  String lowerCaseQuery = _searchQuery.toLowerCase().trim();
-                  if (lowerCaseQuery.isNotEmpty) {
-                    experiences = experiences.where((experience) {
-                      return experience.title.toLowerCase().contains(lowerCaseQuery);
-                    }).toList();
-                  }
+                // Filtro por búsqueda
+                if (_searchQuery.trim().isNotEmpty) {
+                  final q = _searchQuery.toLowerCase().trim();
+                  experiences = experiences
+                      .where((e) => e.title.toLowerCase().contains(q))
+                      .toList();
+                }
+
+                // Filtro por Estado (si se seleccionó alguno)
+                if (_selectedState != null && _selectedState!.isNotEmpty) {
+                  final state = _selectedState!;
+                  experiences = experiences.where((e) {
+                    // 1) Si tu modelo tiene un campo 'state', úsalo (descomenta si existe):
+                    // if ((e.state ?? '').isNotEmpty) {
+                    //   return e.state!.toLowerCase() == state.toLowerCase();
+                    // }
+
+                    // 2) Si no existe 'state', intenta detectar el estado dentro de 'location'
+                    final loc = e.location.toLowerCase();
+                    return loc.contains(state.toLowerCase());
+                  }).toList();
+                }
+
+                // Filtro por precio mínimo/máximo si fueron provistos
+                if (_minPrice != null || _maxPrice != null) {
+                  experiences = experiences.where((e) {
+                    if (_minPrice != null && e.price < _minPrice!) return false;
+                    if (_maxPrice != null && e.price > _maxPrice!) return false;
+                    return true;
+                  }).toList();
+                }
+
+                // Filtro por fecha: sólo si ambas fechas están establecidas
+                if (_filterStartDate != null && _filterEndDate != null) {
+                  final start = _filterStartDate!;
+                  final end = _filterEndDate!;
+                  experiences = experiences.where((e) {
+                    if (e.schedule.isEmpty) return false;
+                    return e.schedule.any((s) => !s.date.isBefore(start) && !s.date.isAfter(end));
+                  }).toList();
                 }
 
                 if (experiences.isEmpty) {
                   return const Center(
                     child: Padding(
                       padding: EdgeInsets.all(30.0),
+                      // PADDING-- respiración general del mensaje vacío
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -218,7 +269,11 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
                           Text(
                             'No se encontraron experiencias que coincidan con tu búsqueda o filtro.',
                             textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 16, color: Colors.grey),
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.grey,
+                              fontFamily: kFontFamily,
+                            ),
                           ),
                         ],
                       ),
@@ -228,10 +283,9 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
 
                 return ListView.builder(
                   padding: const EdgeInsets.all(16),
+                  // PADDING-- margen interno del listado para que las tarjetas no toquen los bordes
                   itemCount: experiences.length,
-                  itemBuilder: (context, index) {
-                    return _buildExperienceCard(experiences[index]);
-                  },
+                  itemBuilder: (_, i) => _buildExperienceCard(experiences[i]),
                 );
               },
             ),
@@ -241,192 +295,202 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
     );
   }
 
+  // ===== Chip de filtros =====
   Widget _buildFilterChip(String label, bool isSelected) {
-    // Usando el estilo de tu versión estable con pequeñas mejoras
-    return Container(
-      margin: const EdgeInsets.only(right: 8), // Reducido el margen un poco
-      child: FilterChip(
-        label: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : const Color(0xFF8B4513),
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500, // Más contraste para seleccionado
-          ),
+    return FilterChip(
+      label: Text(
+        label,
+        style: TextStyle(
+          fontFamily: kFontFamily,
+          color: isSelected ? Colors.white : const Color(0xFF952E07),
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
         ),
-        selected: isSelected,
-        onSelected: (value) {
-          setState(() {
-            _selectedCategory = label;
-            // El StreamBuilder se reconstruirá automáticamente porque _getExperiencesStream
-            // usa _selectedCategory.
-          });
-        },
-        backgroundColor: Colors.grey[100],
-        selectedColor: const Color(0xFFE67E22),
-        checkmarkColor: Colors.white,
-        elevation: isSelected ? 2.0 : 0.0, // Sutil elevación si está seleccionado
-        side: isSelected
-            ? BorderSide.none // Sin borde si está seleccionado
-            : BorderSide(color: Colors.grey[350]!),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8), // Ajuste de padding
+      ),
+      selected: isSelected,
+      onSelected: (_) {
+        setState(() {
+          if (label == 'Todas') {
+            // Si selecciona "Todas", limpiar todas las categorías
+            _selectedCategories.clear();
+          } else {
+            // Si selecciona una categoría específica
+            if (_selectedCategories.contains(label)) {
+              // Si ya está seleccionada, la quitamos
+              _selectedCategories.remove(label);
+            } else {
+              // Si no está seleccionada, la agregamos
+              _selectedCategories.add(label);
+            }
+          }
+        });
+      },
+      backgroundColor: Colors.white,
+      selectedColor: const Color(0xFF952E07),
+      checkmarkColor: Colors.white,
+      side: BorderSide(
+        color: isSelected ? const Color(0xFF952E07) : Colors.grey[300]!,
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      // PADDING-- relleno interno del chip (hacia los lados y arriba/abajo)
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      shape: StadiumBorder(
+        side: BorderSide(
+          color: isSelected ? const Color(0xFF952E07) : Colors.grey[300]!,
+        ),
       ),
     );
   }
 
-  Widget _buildExperienceCard(Experience experience) {
-    // Tomando como base tu _buildExperienceCard y aplicando los campos de tu modelo `Experience`
-    // y algunas mejoras visuales que habíamos visto.
-    return InkWell(
-      onTap: () {
-        if (_isSearching) {
-          setState(() { _isSearching = false; });
-        }
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ExperienceDetailScreen(experience: experience),
-          ),
-        );
-      },
-      child: Card(
-        margin: const EdgeInsets.only(bottom: 16),
-        elevation: 2, // Tu elevación original es 0, puedes ajustar como prefieras
-        clipBehavior: Clip.antiAlias, // Para que el borderRadius afecte a la imagen
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), // Un radio más suave
-        child: Column( // Usar Column para controlar mejor la imagen y el contenido
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Sección de imagen
-            Stack(
-              children: [
-                SizedBox(
-                  width: double.infinity,
-                  height: 150, // Altura de imagen más estándar
-                  child: experience.imageAsset.startsWith('http')
-                      ? Image.network(
-                    experience.imageAsset,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) =>
-                        _placeholderImageForCard(experience.category),
-                    loadingBuilder: (context, child, loadingProgress) {
-                      if (loadingProgress == null) return child;
-                      return Center(
-                          child: CircularProgressIndicator(
-                              value: loadingProgress.expectedTotalBytes != null
-                                  ? loadingProgress.cumulativeBytesLoaded /
-                                  loadingProgress.expectedTotalBytes!
-                                  : null,
-                              strokeWidth: 2.0, color: const Color(0xFFE67E22)
+Widget _buildExperienceCard(Experience experience) {
+  return InkWell(
+    onTap: () {
+      if (_isSearching) setState(() => _isSearching = false);
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ExperienceDetailScreen(experience: experience),
+        ),
+      );
+    },
+    child: Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 2,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: Colors.white, // Fondo blanco
+      child: Row(
+        children: [
+          // Imagen con bordes redondeados y padding izquierdo
+          Padding(
+            padding: const EdgeInsets.only(left: 12),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8), // Bordes redondeados
+              child: SizedBox(
+                width: 120,
+                height: 120,
+                child: experience.imageAsset.startsWith('http')
+                    ? Image.network(
+                        experience.imageAsset,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) =>
+                            _placeholderImageForCard(experience.category),
+                        loadingBuilder: (context, child, progress) {
+                          if (progress == null) return child;
+                          return const Center(
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: kAccentColor,
+                            ),
+                          );
+                        },
+                      )
+                    : (experience.imageAsset.isNotEmpty &&
+                            experience.imageAsset != 'assets/placeholder.jpg')
+                        ? Image.asset(
+                            experience.imageAsset,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) =>
+                                _placeholderImageForCard(experience.category),
                           )
-                      );
-                    },
-                  )
-                      : experience.imageAsset.isNotEmpty && experience.imageAsset != 'assets/placeholder.jpg'
-                      ? Image.asset(
-                      experience.imageAsset,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        print("Error al cargar asset local: ${experience.imageAsset} - $error");
-                        return _placeholderImageForCard(experience.category);
-                      }
-                  )
-                      : _placeholderImageForCard(experience.category),
-                ),
-                if (experience.isVerified)
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF4CAF50).withOpacity(0.9), // Verde verificad
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.verified_user_rounded, color: Colors.white, size: 10),
-                          SizedBox(width: 3),
-                          Text('Verificado', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
+                        : _placeholderImageForCard(experience.category),
+              ),
             ),
-            // Contenido de texto de la tarjeta
-            Padding(
-              padding: const EdgeInsets.all(12.0), // Padding uniforme
+          ),
+          const SizedBox(width: 12), // Espacio entre imagen y texto
+          // Contenido textual a la derecha
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(12.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                // mainAxisAlignment: MainAxisAlignment.spaceBetween, // No necesario con Column externa
                 children: [
                   Text(
                     experience.title,
-                    style: const TextStyle(
-                      fontSize: 16.5, // Ligeramente más grande
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF5D4037),
-                    ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 16.5,
+                      fontWeight: FontWeight.bold,
+                      color: kTextColor,
+                      fontFamily: kFontFamily,
+                    ),
                   ),
                   const SizedBox(height: 6),
-                  Row( // Categoría y Duración
+                  Row(
                     children: [
-                      Icon(_getIconForCategory(experience.category), size: 13, color: Colors.grey[700]),
-                      const SizedBox(width: 4),
-                      Text(experience.category, style: TextStyle(fontSize: 11.5, color: Colors.grey[700])),
-                      const Spacer(),
-                      if (experience.duration.isNotEmpty)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE67E22).withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            experience.duration,
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: Color(0xFFE67E22),
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Row( // Ubicación y Rating
-                    children: [
-                      Icon(Icons.location_on_outlined, size: 13, color: Colors.grey[700]),
+                      Icon(Icons.location_on_outlined,
+                          size: 13, color: Colors.grey[700]),
                       const SizedBox(width: 4),
                       Expanded(
                         child: Text(
                           experience.location,
-                          style: TextStyle(fontSize: 11.5, color: Colors.grey[700]),
-                          overflow: TextOverflow.ellipsis,
                           maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: Colors.grey[700],
+                            fontFamily: kFontFamily,
+                          ),
                         ),
                       ),
-                      if (experience.rating > 0)
-                        Row(
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  // Categoría en un óvalo
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: kAccentColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.star_rounded, size: 14, color: Colors.amber),
-                            const SizedBox(width: 2),
+                            Icon(_getIconForCategory(experience.category),
+                                size: 14, color: kAccentColor),
+                            const SizedBox(width: 5),
                             Text(
-                              experience.rating.toStringAsFixed(1), // Muestra un decimal
-                              style: TextStyle(fontSize: 11.5, color: Colors.grey[700], fontWeight: FontWeight.bold),
+                              experience.category,
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: kAccentColor,
+                                fontFamily: kFontFamily,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ],
+                        ),
+                      ),
+                      const SizedBox(width: 8), // Espacio entre la categoría y duración
+                      // Duración en forma de chip
+                      if (experience.duration.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: kAccentColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            experience.duration,
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: kAccentColor,
+                              fontFamily: kFontFamily,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                     ],
                   ),
                   const SizedBox(height: 10),
-                  // Precio y botón "Ver más"
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Text(
                         (experience.price > 0)
@@ -435,24 +499,32 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFFE67E22),
+                          color: kAccentColor,
+                          fontFamily: kFontFamily,
                         ),
                       ),
                       ElevatedButton(
                         onPressed: () {
-                          if (_isSearching) { setState(() { _isSearching = false; }); }
+                          if (_isSearching) setState(() => _isSearching = false);
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => ExperienceDetailScreen(experience: experience),
+                              builder: (_) => ExperienceDetailScreen(
+                                  experience: experience),
                             ),
                           );
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFE67E22),
+                          backgroundColor: kAccentColor,
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7), // Botón más pequeño
-                          textStyle: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 7,
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: kFontFamily,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
@@ -464,18 +536,19 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
                 ],
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
+
 
   Widget _placeholderImageForCard(String category) {
-    // Tu placeholder, pero ahora usa la categoría para el icono
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
-          colors: [ Color(0xFFE67E22), Color(0xFF8B4513)],
+          colors: [kAccentColor, Color.fromARGB(255, 138, 65, 28)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -484,126 +557,405 @@ class _ExperiencesScreenState extends State<ExperiencesScreen> {
         child: Icon(
           _getIconForCategory(category),
           size: 40,
-          color: Colors.white.withOpacity(0.8), // Ligeramente más opaco
+          color: Colors.white,
         ),
       ),
     );
   }
 
   IconData _getIconForCategory(String category) {
-    // Usando los iconos que tenías, pero con la versión _rounded para consistencia si te gusta
     switch (category) {
-      case 'Gastronomía': return Icons.restaurant_menu_rounded;
-      case 'Arte y Artesanía': return Icons.palette_rounded;
-      case 'Patrimonio': return Icons.account_balance_rounded;
-      case 'Naturaleza y Aventura': return Icons.terrain_rounded; // o Icons.hiking_rounded
-      case 'Música y Danza': return Icons.music_note_rounded;
-      case 'Bienestar': return Icons.spa_rounded;
-      default: return Icons.explore_rounded;
+      case 'Gastronomía':
+        return Icons.restaurant_menu_rounded;
+      case 'Arte y Artesanía':
+        return Icons.palette_rounded;
+      case 'Patrimonio':
+        return Icons.account_balance_rounded;
+      case 'Naturaleza y Aventura':
+        return Icons.terrain_rounded;
+      case 'Música y Danza':
+        return Icons.music_note_rounded;
+      case 'Bienestar':
+        return Icons.spa_rounded;
+      default:
+        return Icons.explore_rounded;
     }
   }
-
   void _showFilterBottomSheet(BuildContext context) {
-    // Tu _showFilterBottomSheet se mantiene igual, ya que solo filtra por categorías
-    // y la lógica de aplicar el filtro ya actualiza _selectedCategory,
-    // lo que hace que el StreamBuilder se reconstruya.
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true, // Para mejor manejo en pantallas pequeñas
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (modalContext) { // Renombrado para evitar confusión de context
-        return StatefulBuilder(
-          builder: (BuildContext context, StateSetter setModalState) {
-            String tempSelectedCategory = _selectedCategory;
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (modalContext) {
+      // ── MOVER variables temporales AQUÍ (fuera del builder de StatefulBuilder)
+      String? tempSelectedState = _selectedState;
+      DateTime? tempStart = _filterStartDate;
+      DateTime? tempEnd = _filterEndDate;
+      List<String> tempSelectedCategories = List.from(_selectedCategories);
 
-            return Padding( // Padding para que no se pegue a los bordes si el teclado aparece
-              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      final TextEditingController minPriceController =
+          TextEditingController(text: _minPrice?.toString() ?? '');
+      final TextEditingController maxPriceController =
+          TextEditingController(text: _maxPrice?.toString() ?? '');
+
+      return StatefulBuilder(
+        builder: (context, setModalState) {
+          Future<void> pickDate({required bool isStart}) async {
+            final initial = isStart
+                ? (tempStart ?? DateTime.now())
+                : (tempEnd ?? DateTime.now());
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: initial,
+              firstDate: DateTime(2000),
+              lastDate: DateTime(2300),
+            );
+            if (picked != null) {
+              setModalState(() {
+                if (isStart) {
+                  tempStart = picked;
+                  if (tempEnd != null && tempEnd!.isBefore(tempStart!)) {
+                    tempEnd = null;
+                  }
+                } else {
+                  tempEnd = picked;
+                  if (tempStart != null && tempStart!.isAfter(tempEnd!)) {
+                    tempStart = null;
+                  }
+                }
+              });
+            }
+          }
+
+          String _format(DateTime? d) {
+            if (d == null) return '';
+            String two(int n) => n.toString().padLeft(2, '0');
+            return '${two(d.day)}/${two(d.month)}/${d.year}';
+          }
+
+          Widget _dateBox({
+            required String placeholder,
+            required DateTime? value,
+            required VoidCallback onTap,
+          }) {
+            return InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(8),
               child: Container(
-                padding: const EdgeInsets.all(20),
+                height: 44,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey[300]!),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.calendar_month_rounded, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        (_format(value).isNotEmpty) ? _format(value) : placeholder,
+                        style: const TextStyle(fontFamily: kFontFamily),
+                      ),
+                    ),
+                    const Icon(Icons.expand_more_rounded, size: 18),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Filtrar por Categoría', // Título más específico
+                      'Filtros',
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFF8B4513),
+                        color: kAccentColor,
+                        fontFamily: kFontFamily,
                       ),
                     ),
-                    const SizedBox(height: 20),
-                    // No necesitas el subtítulo "Categorías" si es el único filtro
-                    Wrap(
-                      spacing: 8.0,
-                      runSpacing: 4.0, // Espacio vertical entre chips
-                      children: _categories.map((category) => FilterChip(
-                        label: Text(category),
-                        selected: tempSelectedCategory == category,
-                        onSelected: (value) {
-                          setModalState(() {
-                            tempSelectedCategory = category;
-                          });
-                        },
-                        backgroundColor: Colors.grey[100],
-                        selectedColor: const Color(0xFFE67E22),
-                        checkmarkColor: Colors.white,
-                        labelStyle: TextStyle(
-                            color: tempSelectedCategory == category ? Colors.white : const Color(0xFF8B4513),
-                            fontWeight: tempSelectedCategory == category ? FontWeight.bold : FontWeight.normal
-                        ),
-                        side: BorderSide(
-                          color: tempSelectedCategory == category
-                              ? const Color(0xFFE67E22)
-                              : Colors.grey[300]!,
-                        ),
-                      )).toList(),
+                    const SizedBox(height: 14),
+
+                    // ======= Estado =======
+                    const Text(
+                      'Estado',
+                      style: TextStyle(
+                        fontFamily: kFontFamily,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                    const SizedBox(height: 25),
+                    const SizedBox(height: 8),
+                    DropdownButton<String>(
+                      value: tempSelectedState, // puede ser null
+                      hint: const Text('Selecciona un estado',
+                          style: TextStyle(fontFamily: kFontFamily)),
+                      isExpanded: true,
+                      onChanged: (String? newState) {
+                        setModalState(() {
+                          // Convertir "todos" a null (sin filtro)
+                          if (newState == 'todos') {
+                            tempSelectedState = null;
+                          } else {
+                            tempSelectedState = newState;
+                          }
+                        });
+                      },
+                      items: [
+                        const DropdownMenuItem<String>(
+                          value: 'todos',
+                          child: Text('Todos',
+                              style: TextStyle(fontFamily: kFontFamily)),
+                        ),
+                        ..._mexicoStates.map((state) {
+                          return DropdownMenuItem<String>(
+                            value: state,
+                            child: Text(state,
+                                style: const TextStyle(fontFamily: kFontFamily)),
+                          );
+                        }),
+                      ],
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    // ======= Categorías (múltiple) =======
+                    const Text(
+                      'Categorías',
+                      style: TextStyle(
+                        fontFamily: kFontFamily,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: _categories.where((c) => c != 'Todas').map((c) {
+                        final isSel = tempSelectedCategories.contains(c);
+                        return FilterChip(
+                          label: Text(
+                            c,
+                            style: TextStyle(
+                              fontFamily: kFontFamily,
+                              color: isSel ? Colors.white : const Color(0xFF8B4513),
+                              fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                          selected: isSel,
+                          onSelected: (sel) {
+                            setModalState(() {
+                              if (sel) {
+                                tempSelectedCategories.add(c);
+                              } else {
+                                tempSelectedCategories.remove(c);
+                              }
+                            });
+                          },
+                          backgroundColor: Colors.grey[100],
+                          selectedColor: kAccentColor,
+                          checkmarkColor: Colors.white,
+                          side: BorderSide(
+                            color: isSel ? kAccentColor : Colors.grey[300]!,
+                          ),
+                        );
+                      }).toList(),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    // ======= Fechas =======
+                    const Text(
+                      'Fechas',
+                      style: TextStyle(
+                        fontFamily: kFontFamily,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _dateBox(
+                            placeholder: 'Desde',
+                            value: tempStart,
+                            onTap: () => pickDate(isStart: true),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _dateBox(
+                            placeholder: 'Hasta',
+                            value: tempEnd,
+                            onTap: () => pickDate(isStart: false),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // ======= Precio =======
+                    const Text(
+                      'Precio (MXN)',
+                      style: TextStyle(
+                        fontFamily: kFontFamily,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: minPriceController,
+                            keyboardType: TextInputType.number,
+                            style: const TextStyle(
+                              fontFamily: kFontFamily,
+                              fontWeight: FontWeight.w400,
+                              color: kTextColor,
+                            ),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              hintText: '\$ mín.',
+                              filled: true,
+                              fillColor: Colors.white,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(color: Colors.grey[300]!),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: maxPriceController,
+                            keyboardType: TextInputType.number,
+                            style: const TextStyle(fontFamily: kFontFamily),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              hintText: '\$ máx.',
+                              filled: true,
+                              fillColor: Colors.white,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(color: Colors.grey[300]!),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 18),
+
+                    // ======= Acciones =======
                     Row(
                       children: [
                         Expanded(
                           child: OutlinedButton(
-                            onPressed: () => Navigator.pop(modalContext),
+                            onPressed: () {
+                              setModalState(() {
+                                tempStart = null;
+                                tempEnd = null;
+                                minPriceController.clear();
+                                maxPriceController.clear();
+                                tempSelectedCategories.clear();
+                                tempSelectedState = null;
+                              });
+                              setState(() {
+                                _filterStartDate = null;
+                                _filterEndDate = null;
+                                _minPrice = null;
+                                _maxPrice = null;
+                                _selectedCategories.clear();
+                                _selectedState = null;
+                              });
+                              Navigator.pop(modalContext);
+                            },
                             style: OutlinedButton.styleFrom(
-                                foregroundColor: const Color(0xFF8B4513),
-                                side: const BorderSide(color: Color(0xFF8B4513)),
-                                padding: const EdgeInsets.symmetric(vertical: 12)
+                              foregroundColor: kAccentColor,
+                              side: const BorderSide(color: kAccentColor),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
                             ),
-                            child: const Text('Cancelar'),
+                            child: const Text('Limpiar',
+                                style: TextStyle(fontFamily: kFontFamily)),
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: ElevatedButton(
                             onPressed: () {
+                              // Validación fechas
+                              if ((tempStart != null && tempEnd == null) ||
+                                  (tempStart == null && tempEnd != null)) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Selecciona ambas fechas o ninguna.',
+                                      style: TextStyle(fontFamily: kFontFamily),
+                                    ),
+                                  ),
+                                );
+                                return;
+                              }
+
+                              final minP = int.tryParse(minPriceController.text.trim());
+                              final maxP = int.tryParse(maxPriceController.text.trim());
+
                               setState(() {
-                                _selectedCategory = tempSelectedCategory;
-                                // No es necesario llamar a _loadExperiences o similar aquí,
-                                // el StreamBuilder se reconstruirá con el nuevo _selectedCategory.
+                                _selectedCategories = List.from(tempSelectedCategories);
+                                _selectedState = tempSelectedState; // null = sin filtro
+                                _filterStartDate = tempStart;
+                                _filterEndDate = tempEnd;
+                                _minPrice = minP;
+                                _maxPrice = maxP;
                               });
                               Navigator.pop(modalContext);
                             },
                             style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFE67E22),
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 12)
+                              backgroundColor: kAccentColor,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
                             ),
-                            child: const Text('Aplicar'),
+                            child: const Text('Aplicar',
+                                style: TextStyle(fontFamily: kFontFamily)),
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 10), // Un poco de espacio al final
+                    const SizedBox(height: 10),
                   ],
                 ),
               ),
-            );
-          },
-        );
-      },
-    );
-  }
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
 }

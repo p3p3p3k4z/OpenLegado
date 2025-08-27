@@ -10,6 +10,13 @@ import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform;
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import '../config/app_config.dart'; // Para verificar si los anuncios están habilitados
 
+// Paleta
+const Color kBackgroundColor = Color(0xFFFFF0E0);
+const Color kAccentColor = Color(0xFF4E1E0A);
+const Color kTextColor = Color(0xFF311F14);
+
+// Fuente
+const String kFontFamily = 'Montserrat';
 class ExploreScreen extends StatefulWidget {
   const ExploreScreen({super.key});
 
@@ -112,23 +119,19 @@ class _ExploreScreenState extends State<ExploreScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        centerTitle: true,
         title: const Text(
           'Explorar',
           style: TextStyle(
-            color: Color(0xFF8B4513),
-            fontWeight: FontWeight.bold,
+            color: kTextColor,
+            fontWeight: FontWeight.w700,
+            fontFamily: kFontFamily,
+            fontSize: 20,
           ),
         ),
         backgroundColor: Colors.white,
         elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.tune, color: Color(0xFFE67E22)),
-            onPressed: () {
-              print('Botón de filtros presionado.');
-            },
-          ),
-        ],
+        
       ),
       body: SingleChildScrollView( // <--- MODIFICACIÓN: Envuelve la Column principal
         child: Column(
