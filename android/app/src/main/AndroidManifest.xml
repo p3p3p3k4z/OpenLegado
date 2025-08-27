@@ -44,6 +44,19 @@
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="ca-app-pub-8671328151922776~9538909594"/>
 
+<<<<<<< HEAD
+=======
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
+        <!-- Reemplaza ic_notification con el nombre de tu icono en res/drawable -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/colorAccent" />
+        <!-- Reemplaza colorAccent con tu color definido en res/values/colors.xml -->
+
+
+>>>>>>> stable
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

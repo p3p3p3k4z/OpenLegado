@@ -1,17 +1,53 @@
 import 'package:flutter/material.dart';
-// import 'package:flutter_svg/flutter_svg.dart'; // No se usa en el código que me pasaste para main o LegadoApp
 import 'screens/welcome_screen.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
-// Importaciones de Firebase añadidas
+// Importaciones de Firebase
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart'; // Este archivo se genera con `flutterfire configure`
 
+// --------- IMPORTACIONES PARA NOTIFICACIONES FCM ---------
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'dart:convert'; // Para codificar/decodificar JSON en el payload
+
 // --------- IMPORTACIONES PARA ANUNCIOS ---------
-import 'config/app_config.dart'; // Para las banderas de habilitación de anuncios
-import 'package:flutter/foundation.dart' show kIsWeb; // Para detectar la plataforma
-import 'package:google_mobile_ads/google_mobile_ads.dart'; // Para AdMob
+import 'config/app_config.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+
+// --- INICIO: Variables Globales para Notificaciones ---
+/// Globalmente accesible o inyectado donde sea necesario
+final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
+
+/// Opcional: Configuración para flutter_local_notifications
+FlutterLocalNotificationsPlugin? _flutterLocalNotificationsPlugin;
+AndroidNotificationChannel? _androidNotificationChannel;
+
+// Es buena práctica tener una clave de navegador global si necesitas navegar desde un callback de notificación
+// GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>(); // Descomenta si la necesitas
+
+// --- FIN: Variables Globales para Notificaciones ---
+
+
+// --- INICIO: Manejador de mensajes en segundo plano (background/terminated) ---
+// DEBE SER UNA FUNCIÓN DE NIVEL SUPERIOR (fuera de cualquier clase)
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // Si estás usando otros plugins de Firebase en el manejador de segundo plano,
+  // asegúrate de llamar a `initializeApp` antes de usarlos.
+  // await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform); // Descomentar si es necesario
+
+  print("Handling a background message: ${message.messageId}");
+  print('Message data: ${message.data}');
+  if (message.notification != null) {
+    print('Message also contained a notification: ${message.notification!.title}');
+  }
+  // Aquí podrías guardar la notificación en almacenamiento local si es necesario,
+  // o realizar alguna tarea ligera. NO actualices UI directamente desde aquí.
+}
+// --- FIN: Manejador de mensajes en segundo plano ---
 
 void main() async {
   // 1. Asegura que los widgets de Flutter estén inicializados
@@ -22,44 +58,233 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
   await initializeDateFormatting('es_MX', null);
+
+  // --- INICIO: Configuración de Notificaciones FCM ---
+  // Establecer el manejador de mensajes en segundo plano
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+  // Solicitar permisos de notificación (importante para iOS y Android 13+)
+  await _requestNotificationPermissions();
+
+  // Inicializar listeners de FCM para mensajes en primer plano y abiertos
+  await _initFCMListeners();
+
+  // Opcional: Inicializar flutter_local_notifications
+  await _initLocalNotifications();
+
+  // Opcional: Obtener y mostrar/guardar el token FCM
+  _getAndPrintFCMToken();
+  // --- FIN: Configuración de Notificaciones FCM ---
+
+
   // 3. Inicializa Servicios de Anuncios (condicionalmente)
-  //    Usaremos las banderas de tu AppConfig
-  if (AppConfig.adsEnabled) { // Asumiendo que tienes esta bandera global
-    if (kIsWeb && AppConfig.adsEnabledWeb) { // Asumiendo bandera para web
-      // Para ADSENSE (WEB):
-      // Ya has indicado que el script de AdSense está en tu web/index.html.
-      // No se requiere una llamada adicional a `initialize()` desde Flutter para AdSense.
-      print("MAIN: Anuncios Web (AdSense) están configurados. Script de AdSense se espera en web/index.html.");
-    } else if (!kIsWeb && (AppConfig.adsEnabledAndroid /* || AppConfig.adsEnabledIOS */)) {
-      // Para ADMOB (ANDROID / iOS - ajusta AppConfig.adsEnabledAndroid según tu necesidad)
+  //    Tu código de anuncios existente permanece aquí...
+  if (AppConfig.adsEnabled) {
+    if (kIsWeb && AppConfig.adsEnabledWeb) {
+      print("MAIN: Anuncios Web (AdSense) están configurados...");
+    } else if (!kIsWeb && (AppConfig.adsEnabledAndroid)) {
       try {
         print("MAIN: Intentando inicializar Google Mobile Ads SDK...");
         await MobileAds.instance.initialize();
         print("MAIN: Google Mobile Ads SDK inicializado correctamente.");
-
-        // Opcional: Configuración para UMP (Consentimiento)
-        // MobileAds.instance.setConsentDebugSettings(
-        //   ConsentDebugSettings(
-        //     debugGeography: DebugGeography.debugGeographyEea,
-        //     testIdentifiers: ['TU_HASH_DE_DISPOSITIVO_DE_PRUEBA_UMP'],
-        //   ),
-        // );
-        // Aquí podrías invocar la lógica para solicitar/actualizar el consentimiento si usas UMP.
-
       } catch (e) {
         print("MAIN: Error al inicializar Google Mobile Ads SDK: $e");
-        // Considera cómo manejar este error.
       }
     } else if (!kIsWeb) {
-      print("MAIN: Anuncios móviles (AdMob) están deshabilitados en AppConfig para la plataforma actual.");
+      print("MAIN: Anuncios móviles (AdMob) deshabilitados...");
     }
   } else {
-    print("MAIN: Los anuncios están globalmente deshabilitados en AppConfig.");
+    print("MAIN: Los anuncios están globalmente deshabilitados...");
   }
 
   // 4. Ejecuta la aplicación
   runApp(LegadoApp());
 }
+
+// --- INICIO: Funciones Auxiliares para Notificaciones ---
+Future<void> _requestNotificationPermissions() async {
+  NotificationSettings settings = await _firebaseMessaging.requestPermission(
+    alert: true,
+    announcement: false,
+    badge: true,
+    carPlay: false,
+    criticalAlert: false,
+    provisional: false,
+    sound: true,
+  );
+
+  if (settings.authorizationStatus == AuthorizationStatus.authorized) {
+    print('User granted notification permission');
+  } else if (settings.authorizationStatus == AuthorizationStatus.provisional) {
+    print('User granted provisional notification permission');
+  } else {
+    print('User declined or has not accepted notification permission');
+    // Considera mostrar un diálogo explicando por qué necesitas los permisos si fueron denegados.
+  }
+}
+
+Future<void> _initLocalNotifications() async {
+  _flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+
+  _androidNotificationChannel = const AndroidNotificationChannel(
+    'legado_high_importance_channel', // ID único del canal
+    'Notificaciones Importantes de Legado', // Título visible para el usuario
+    description: 'Este canal se usa para notificaciones importantes de la app Legado.', // Descripción
+    importance: Importance.high,
+    playSound: true,
+  );
+
+  // Crear el canal en Android
+  await _flutterLocalNotificationsPlugin!
+      .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+      ?.createNotificationChannel(_androidNotificationChannel!);
+
+  // Configuración de inicialización para Android e iOS
+  const AndroidInitializationSettings initializationSettingsAndroid =
+  AndroidInitializationSettings('@mipmap/ic_launcher'); // Usa el icono de tu app
+
+  final DarwinInitializationSettings initializationSettingsIOS =
+  DarwinInitializationSettings(
+      onDidReceiveLocalNotification: _onDidReceiveIOSLocalNotification);
+
+  final InitializationSettings initializationSettings = InitializationSettings(
+    android: initializationSettingsAndroid,
+    iOS: initializationSettingsIOS,
+  );
+
+  await _flutterLocalNotificationsPlugin!.initialize(
+    initializationSettings,
+    onDidReceiveNotificationResponse: _onDidReceiveLocalNotificationResponse,
+  );
+}
+
+// Callback para iOS < 10 (raro hoy en día, pero bueno tenerlo por completitud)
+void _onDidReceiveIOSLocalNotification(
+    int id, String? title, String? body, String? payload) async {
+  print('iOS < 10 local notification received: $title with payload: $payload');
+  // Aquí podrías mostrar un diálogo o manejar el payload
+}
+
+// Callback cuando se toca una notificación LOCAL (mostrada por flutter_local_notifications)
+void _onDidReceiveLocalNotificationResponse(NotificationResponse notificationResponse) async {
+  final String? payload = notificationResponse.payload;
+  if (payload != null) {
+    debugPrint('Local notification payload: $payload');
+    try {
+      Map<String, dynamic> data = json.decode(payload);
+      _handleMessageNavigation(data, "Local Notification Tap");
+    } catch (e) {
+      debugPrint('Error decoding payload: $e. Payload was: $payload');
+      // Manejar el payload como una simple cadena si no es JSON
+      // o intentar navegar con el payload directamente si es una ruta simple.
+    }
+  }
+}
+
+Future<void> _initFCMListeners() async {
+  // 1. Cuando la app está en primer plano
+  FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    print('FCM: Got a message whilst in the foreground!');
+    print('FCM: Message data: ${message.data}');
+
+    RemoteNotification? notification = message.notification;
+    AndroidNotification? android = message.notification?.android; // Específico de Android
+
+    // Si el mensaje contiene una carga de notificación y tenemos el plugin local inicializado
+    if (notification != null && _flutterLocalNotificationsPlugin != null && _androidNotificationChannel != null) {
+      print('FCM: Message also contained a notification: ${notification.title}');
+
+      _flutterLocalNotificationsPlugin!.show(
+        notification.hashCode, // ID único para la notificación
+        notification.title,
+        notification.body,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            _androidNotificationChannel!.id,
+            _androidNotificationChannel!.name,
+            channelDescription: _androidNotificationChannel!.description,
+            icon: android?.smallIcon ?? '@mipmap/ic_launcher',
+            importance: Importance.high,
+            priority: Priority.high,
+            playSound: true,
+            // color: Color(0xFFE67E22), // Puedes definir un color aquí también
+            // largeIcon: ..., // Si quieres un icono grande
+          ),
+          iOS: const DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+          ),
+        ),
+        payload: json.encode(message.data), // Pasar los datos de FCM como payload
+      );
+    }
+  });
+
+  // 2. Cuando la app está en segundo plano y el usuario toca la notificación
+  FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+    print('FCM: A new onMessageOpenedApp event was published!');
+    print('FCM: Message data: ${message.data}');
+    if (message.notification != null) {
+      print('FCM: Message from onMessageOpenedApp also contained a notification: ${message.notification!.title}');
+    }
+    _handleMessageNavigation(message.data, "Notification Tap (Background)");
+  });
+
+  // 3. Cuando la app está terminada y se abre desde una notificación
+  RemoteMessage? initialMessage = await _firebaseMessaging.getInitialMessage();
+  if (initialMessage != null) {
+    print('FCM: App opened from terminated state via notification:');
+    print('FCM: Initial message data: ${initialMessage.data}');
+    if (initialMessage.notification != null) {
+      print('FCM: Initial message also contained a notification: ${initialMessage.notification!.title}');
+    }
+    // Esperar un poco para que el widget tree se construya si es necesario antes de navegar
+    Future.delayed(Duration(milliseconds: 500), () { // Reducido el delay
+      _handleMessageNavigation(initialMessage.data, "Notification Tap (Terminated)");
+    });
+  }
+}
+
+void _handleMessageNavigation(Map<String, dynamic> data, String source) {
+  print("Source: $source - Attempting to navigate with data: $data");
+  // Aquí implementas tu lógica de navegación.
+  // Por ejemplo, si envías un dato como {'screen_to_open': '/detalle_articulo', 'item_id': '123'}
+  final String? screenRoute = data['screen_to_open'] as String?;
+  final String? itemId = data['item_id'] as String?;
+
+  if (screenRoute != null) {
+    print("Navigating to $screenRoute with itemId: $itemId");
+    // DESCOMENTA Y USA TU navigatorKey si lo tienes configurado en MaterialApp
+    // Y asegúrate de que `navigatorKey` está asignado en `MaterialApp`.
+    // if (navigatorKey.currentState != null) {
+    //   if (itemId != null) {
+    //     navigatorKey.currentState!.pushNamed(screenRoute, arguments: {'id': itemId});
+    //   } else {
+    //     navigatorKey.currentState!.pushNamed(screenRoute);
+    //   }
+    // } else {
+    //   print("NavigatorKey is null, cannot navigate.");
+    // }
+    // Por ahora, solo imprimiremos un mensaje
+    // En una app real, aquí iría tu código de `Navigator.pushNamed` o GoRouter, etc.
+  } else {
+    print("No 'screen_to_open' data found in notification payload for navigation.");
+  }
+}
+
+Future<void> _getAndPrintFCMToken() async {
+  String? token = await _firebaseMessaging.getToken();
+  print("FirebaseMessaging Token: $token");
+
+  // Escuchar cambios en el token (raro, pero puede ocurrir)
+  _firebaseMessaging.onTokenRefresh.listen((newToken) {
+    print("New FCM Token refreshed: $newToken");
+    // Aquí deberías enviar el nuevo token a tu servidor si lo estás almacenando
+    // await saveTokenToDatabase(newToken);
+  });
+}
+// --- FIN: Funciones Auxiliares para Notificaciones ---
 
 class LegadoApp extends StatelessWidget {
   const LegadoApp({Key? key}) : super(key: key);
@@ -67,6 +292,7 @@ class LegadoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      // navigatorKey: navigatorKey, // Descomenta si usas la GlobalKey para navegación desde los callbacks
       title: 'Legado',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
@@ -102,91 +328,82 @@ class LegadoApp extends StatelessWidget {
           ),
         ),
       ),
-
       localizationsDelegates: [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate, // Bueno tenerlo por si usas algo de Cupertino
+        GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: [
-        const Locale('en', ''), // Inglés, como fallback o si lo soportas
-        const Locale('es', ''), // Español genérico
-        const Locale('es', 'MX'), // Español específico para México
-        // Puedes añadir otros idiomas que tu app vaya a soportar
+        const Locale('en', ''),
+        const Locale('es', ''),
+        const Locale('es', 'MX'),
       ],
-      // Opcional: Especificar el locale inicial de la app
-      // Si quieres que siempre inicie en 'es_MX' (o 'es'), descomenta y ajusta:
-      // locale: const Locale('es', 'MX'),
-      // Si no lo pones, intentará usar el idioma del dispositivo si está en supportedLocales,
-      // o el primer locale de la lista supportedLocales como fallback.
-
-
-      home: WelcomeScreen(), // Tu WelcomeScreen existente
+      home: WelcomeScreen(),
+      // Define tus rutas aquí si vas a usar navegación por nombre desde las notificaciones
+      // routes: {
+      //   '/home': (context) => HomeScreen(),
+      //   '/detalle_articulo': (context) => DetalleArticuloScreen(), // Asumiendo que tienes esta pantalla
+      //   // ... otras rutas
+      // },
     );
   }
 }
 
-// Tu clase HomeScreen y _buildExperienceCard permanecen exactamente como las proporcionaste.
-// Las omito aquí para brevedad, ya que no se modifican.
 class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    // ... tu código de HomeScreen ...
     return Scaffold(
-        body: CustomScrollView(
-            slivers: [
-            // APP BAR CON DISEÑO MEXICANO
-            SliverAppBar(
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar(
             expandedHeight: 200,
             flexibleSpace: FlexibleSpaceBar(
-                background: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                  // Imagen de fondo de alta calidad
+              background: Stack(
+                fit: StackFit.expand,
+                children: [
                   Container(
-                  width: double.infinity,
-                  height: double.infinity,
-                  child: Image.asset(
-                    'assets/fondo_mexicano.jpg',
-                    fit: BoxFit.cover,
-                    filterQuality: FilterQuality.high,
-                    isAntiAlias: true,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              Theme.of(context).primaryColor,
-                              Theme.of(context).colorScheme.secondary,
-                            ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
+                    width: double.infinity,
+                    height: double.infinity,
+                    child: Image.asset(
+                      'assets/fondo_mexicano.jpg',
+                      fit: BoxFit.cover,
+                      filterQuality: FilterQuality.high,
+                      isAntiAlias: true,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Theme.of(context).primaryColor,
+                                Theme.of(context).colorScheme.secondary,
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
                           ),
-                        ),
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
-                ),
-                Container(color: Colors.black.withOpacity(0.3)),
-                Center(
+                  Container(color: Colors.black.withOpacity(0.3)),
+                  Center(
                     child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                        // Logo mejorado con fallback elegante
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
                         Container(
-                        height: 80,
-                        width: 80,
-                        decoration: BoxDecoration(
+                          height: 80,
+                          width: 80,
+                          decoration: BoxDecoration(
                             color: Colors.white.withOpacity(0.9),
                             shape: BoxShape.circle,
                             boxShadow: [
-                            BoxShadow(
-                              color: Colors.black26,
-                              blurRadius: 10,
-                              offset: Offset(0, 4),
-                            ),
+                              BoxShadow(
+                                color: Colors.black26,
+                                blurRadius: 10,
+                                offset: Offset(0, 4),
+                              ),
                             ],
-                        ),
+                          ),
                           child: Padding(
                             padding: EdgeInsets.all(8),
                             child: ClipOval(
@@ -212,348 +429,338 @@ class HomeScreen extends StatelessWidget {
                             ),
                           ),
                         ),
-                          SizedBox(height: 10),
-                          Text(
-                            'Descubre el alma de México',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontFamily: 'Georgia',
-                              fontStyle: FontStyle.italic,
+                        SizedBox(height: 10),
+                        Text(
+                          'Descubre el alma de México',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontFamily: 'Georgia',
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Experiencias Auténticas', style: Theme.of(context).textTheme.headlineMedium),
+                  SizedBox(height: 15),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _buildExperienceCard(
+                          context,
+                          title: 'Taller de Barro Negro',
+                          location: 'San Bartolo Coyotepec, Oaxaca',
+                          price: 350,
+                          image: 'assets/barro_negro.jpg',
+                          isVerified: true,
+                        ),
+                        _buildExperienceCard(
+                          context,
+                          title: 'Cocina de Mole en Cazuela',
+                          location: 'Puebla, Puebla',
+                          price: 420,
+                          image: 'assets/mole_poblano.jpg',
+                        ),
+                        _buildExperienceCard(
+                          context,
+                          title: 'Tejido de Sarapes',
+                          location: 'Teotitlán del Valle, Oaxaca',
+                          price: 380,
+                          image: 'assets/sarapes.jpg',
+                          isVerified: true,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Rutas del Patrimonio', style: Theme.of(context).textTheme.headlineMedium),
+                  SizedBox(height: 15),
+                  Container(
+                    height: 200,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(15),
+                      boxShadow: [
+                        BoxShadow(color: Colors.grey.withOpacity(0.3), blurRadius: 10)
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(15),
+                      child: Stack(
+                        children: [
+                          Container(
+                            width: double.infinity,
+                            height: double.infinity,
+                            child: Image.asset(
+                              'assets/mapa_cultural.jpg',
+                              fit: BoxFit.cover,
+                              filterQuality: FilterQuality.high,
+                              isAntiAlias: true,
+                              cacheWidth: 1000,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        Theme.of(context).primaryColor,
+                                        Theme.of(context).colorScheme.secondary,
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                                  ),
+                                  child: Center(
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(Icons.map, size: 48, color: Colors.white70),
+                                        SizedBox(height: 8),
+                                        Text(
+                                          'Mapa Cultural Interactivo',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          Positioned(
+                            bottom: 10,
+                            left: 10,
+                            child: Container(
+                              padding: EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.9),
+                                borderRadius: BorderRadius.circular(12),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black26,
+                                    blurRadius: 8,
+                                    offset: Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.location_on,
+                                    size: 18,
+                                    color: Theme.of(context).primaryColor,
+                                  ),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'Ruta del Mezcal Artesanal',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                      color: Color(0xFF5D4037),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ],
-                    ),
-                ),
-                  ],
-                ),
-            ),
-            ),
-
-              // SECCIÓN DE EXPERIENCIAS DESTACADAS
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Experiencias Auténticas', style: Theme.of(context).textTheme.headlineMedium),
-                      SizedBox(height: 15),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            _buildExperienceCard(
-                              context,
-                              title: 'Taller de Barro Negro',
-                              location: 'San Bartolo Coyotepec, Oaxaca',
-                              price: 350,
-                              image: 'assets/barro_negro.jpg',
-                              isVerified: true,
-                            ),
-                            _buildExperienceCard(
-                              context,
-                              title: 'Cocina de Mole en Cazuela',
-                              location: 'Puebla, Puebla',
-                              price: 420,
-                              image: 'assets/mole_poblano.jpg',
-                            ),
-                            _buildExperienceCard(
-                              context,
-                              title: 'Tejido de Sarapes',
-                              location: 'Teotitlán del Valle, Oaxaca',
-                              price: 380,
-                              image: 'assets/sarapes.jpg',
-                              isVerified: true,
-                            ),
-                          ],
-                        ),
                       ),
-                    ],
+                    ),
                   ),
-                ),
+                  SizedBox(height: 20),
+                ],
               ),
-
-              // MAPA CULTURAL
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Container(
+              margin: EdgeInsets.all(20),
+              padding: EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Color(0xFFFFF8DC),
+                    Color(0xFFF5E6D3),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black12,
+                    blurRadius: 15,
+                    offset: Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Tu Huella Cultural',
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      color: Color(0xFF5D4037),
+                    ),
+                  ),
+                  SizedBox(height: 20),
+                  Row(
                     children: [
-                      Text('Rutas del Patrimonio', style: Theme.of(context).textTheme.headlineMedium),
-                      SizedBox(height: 15),
-                      Container(
-                        height: 200,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(15),
-                          boxShadow: [
-                            BoxShadow(color: Colors.grey.withOpacity(0.3), blurRadius: 10)
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(15),
-                          child: Stack(
+                      Expanded(
+                        child: Container(
+                          padding: EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(15),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 8,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Column(
                             children: [
-                              // Imagen de fondo de alta calidad
-                              Container(
-                                width: double.infinity,
-                                height: double.infinity,
-                                child: Image.asset(
-                                  'assets/mapa_cultural.jpg',
-                                  fit: BoxFit.cover,
-                                  filterQuality: FilterQuality.high,
-                                  isAntiAlias: true,
-                                  cacheWidth: 1000,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return Container(
-                                      decoration: BoxDecoration(
-                                        gradient: LinearGradient(
-                                          colors: [
-                                            Theme.of(context).primaryColor,
-                                            Theme.of(context).colorScheme.secondary,
-                                          ],
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                        ),
-                                      ),
-                                      child: Center(
-                                        child: Column(
-                                          mainAxisAlignment: MainAxisAlignment.center,
-                                          children: [
-                                            Icon(Icons.map, size: 48, color: Colors.white70),
-                                            SizedBox(height: 8),
-                                            Text(
-                                              'Mapa Cultural Interactivo',
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 18,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-                                  },
+                              Text(
+                                '128',
+                                style: TextStyle(
+                                  fontSize: 36,
+                                  fontWeight: FontWeight.bold,
+                                  color: Theme.of(context).primaryColor,
                                 ),
                               ),
-                              // Overlay con información
-                              Positioned(
-                                bottom: 10,
-                                left: 10,
-                                child: Container(
-                                  padding: EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.9),
-                                    borderRadius: BorderRadius.circular(12),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black26,
-                                        blurRadius: 8,
-                                        offset: Offset(0, 2),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.location_on,
-                                        size: 18,
-                                        color: Theme.of(context).primaryColor,
-                                      ),
-                                      SizedBox(width: 6),
-                                      Text(
-                                        'Ruta del Mezcal Artesanal',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
-                                          color: Color(0xFF5D4037),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                              SizedBox(height: 4),
+                              Text(
+                                'Artesanos apoyados',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Color(0xFF6D4C41),
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
                             ],
                           ),
                         ),
                       ),
-                      SizedBox(height: 20),
+                      SizedBox(width: 16),
+                      Expanded(
+                        child: Container(
+                          padding: EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(15),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 8,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            children: [
+                              Text(
+                                '\$42,380',
+                                style: TextStyle(
+                                  fontSize: 36,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF388E3C),
+                                ),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                'Al fondo comunitario',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Color(0xFF6D4C41),
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ],
                   ),
-                ),
-              ),
-
-              // IMPACTO COMUNITARIO
-              SliverToBoxAdapter(
-                child: Container(
-                  margin: EdgeInsets.all(20),
-                  padding: EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        Color(0xFFFFF8DC), // Beige claro
-                        Color(0xFFF5E6D3), // Beige más oscuro
+                  SizedBox(height: 24),
+                  Container(
+                    padding: EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(15),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 8,
+                          offset: Offset(0, 2),
+                        ),
                       ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
                     ),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black12,
-                        blurRadius: 15,
-                        offset: Offset(0, 5),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Tu Huella Cultural',
-                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                          color: Color(0xFF5D4037),
+                    child: Column(
+                      children: [
+                        LinearProgressIndicator(
+                          value: 0.65,
+                          backgroundColor: Colors.grey[200],
+                          valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).primaryColor),
+                          minHeight: 12,
+                          borderRadius: BorderRadius.circular(6),
                         ),
-                      ),
-                      SizedBox(height: 20),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              padding: EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(15),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.05),
-                                    blurRadius: 8,
-                                    offset: Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: Column(
-                                children: [
-                                  Text(
-                                    '128',
-                                    style: TextStyle(
-                                      fontSize: 36,
-                                      fontWeight: FontWeight.bold,
-                                      color: Theme.of(context).primaryColor,
-                                    ),
-                                  ),
-                                  SizedBox(height: 4),
-                                  Text(
-                                    'Artesanos apoyados',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: Color(0xFF6D4C41),
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          SizedBox(width: 16),
-                          Expanded(
-                            child: Container(
-                              padding: EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(15),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.05),
-                                    blurRadius: 8,
-                                    offset: Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: Column(
-                                children: [
-                                  Text(
-                                    '\$42,380',
-                                    style: TextStyle(
-                                      fontSize: 36,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF388E3C),
-                                    ),
-                                  ),
-                                  SizedBox(height: 4),
-                                  Text(
-                                    'Al fondo comunitario',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: Color(0xFF6D4C41),
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      SizedBox(height: 24),
-                      Container(
-                        padding: EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(15),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
-                              blurRadius: 8,
-                              offset: Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Column(
+                        SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            LinearProgressIndicator(
-                              value: 0.65,
-                              backgroundColor: Colors.grey[200],
-                              valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).primaryColor),
-                              minHeight: 12,
-                              borderRadius: BorderRadius.circular(6), // Agregado para que coincida con el card
+                            Text(
+                              'Escuela de Artes Tradicionales',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF6D4C41),
+                              ),
                             ),
-                            SizedBox(height: 12),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  'Escuela de Artes Tradicionales',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFF6D4C41),
-                                  ),
-                                ),
-                                Text(
-                                  '65% completado',
-                                  style: TextStyle(
-                                    color: Theme.of(context).primaryColor,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
+                            Text(
+                              '65% completado',
+                              style: TextStyle(
+                                color: Theme.of(context).primaryColor,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ],
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
-        ),
-
-      // BARRA INFERIOR CON PATRONES MEXICANOS
+            ),
+          ),
+        ],
+      ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           border: Border(top: BorderSide(color: Theme.of(context).primaryColor, width: 2)),
@@ -601,10 +808,9 @@ class HomeScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // IMAGEN CON SELLO DE AUTENTICIDAD
             Stack(
               children: [
-                ClipRRect( // Corrección aquí: ClipRRect estaba mal anidado
+                ClipRRect(
                   borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
                   child: Container(
                     height: 180,
@@ -614,7 +820,7 @@ class HomeScreen extends StatelessWidget {
                       fit: BoxFit.cover,
                       filterQuality: FilterQuality.high,
                       isAntiAlias: true,
-                      cacheWidth: 800, // Forzar carga en alta resolución
+                      cacheWidth: 800,
                       errorBuilder: (context, error, stackTrace) {
                         return Container(
                           decoration: BoxDecoration(
@@ -634,7 +840,7 @@ class HomeScreen extends StatelessWidget {
                                 Icon(Icons.image_outlined, size: 48, color: Colors.white70),
                                 SizedBox(height: 8),
                                 Text(
-                                  'Imagen en alta calidad\npronto disponible', // Mensaje de error de imagen
+                                  'Imagen en alta calidad\npronto disponible',
                                   textAlign: TextAlign.center,
                                   style: TextStyle(color: Colors.white70, fontSize: 14),
                                 ),
@@ -682,8 +888,6 @@ class HomeScreen extends StatelessWidget {
                   ),
               ],
             ),
-
-            // DETALLES
             Padding(
               padding: EdgeInsets.all(20),
               child: Column(
@@ -714,11 +918,9 @@ class HomeScreen extends StatelessWidget {
                     ],
                   ),
                   SizedBox(height: 16),
-
-                  // PRECIO CON DESGLOSE COMUNITARIO
                   RichText(
                     text: TextSpan(
-                      style: DefaultTextStyle.of(context).style.copyWith(fontSize: 14), // Asegura un estilo base
+                      style: DefaultTextStyle.of(context).style.copyWith(fontSize: 14),
                       children: [
                         TextSpan(
                           text: '\$${price} MXN',
@@ -735,14 +937,11 @@ class HomeScreen extends StatelessWidget {
                       ],
                     ),
                   ),
-
-                  // BOTÓN CON DISEÑO MEXICANO
                   SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
                       onPressed: () {
-                        // Aquí puedes agregar navegación o funcionalidad
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('¡Reservando experiencia: $title!'),
@@ -785,3 +984,4 @@ class HomeScreen extends StatelessWidget {
     );
   }
 }
+

@@ -25,4 +25,24 @@ class AppDelegate: FlutterAppDelegate {
     GeneratedPluginRegistrant.register(with: self)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
+<<<<<<< HEAD
 }
+=======
+}
+
+
+@UIApplicationMain
+@objc class AppDelegate: FlutterAppDelegate {
+  override func application(
+    _ application: UIApplication,
+    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+  ) -> Bool {
+    FirebaseApp.configure() // Asegúrate que Firebase esté configurado
+    GeneratedPluginRegistrant.register(with: self)
+
+    if #available(iOS 10.0, *) {
+      UNUserNotificationCenter.current().delegate = self as? UNUserNotificationCenterDelegate
+    }
+    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+>>>>>>> stable
