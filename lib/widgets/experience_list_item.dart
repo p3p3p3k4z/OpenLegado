@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart'; // Para formatear fechas si es necesario
+// Para formatear fechas si es necesario
 import '../models/experience.dart'; // Ajusta la ruta a tu modelo
-import '../screens/submit_experience_screen.dart'; // Para la navegación a edición
+// Para la navegación a edición
 
 // Enum para definir las acciones disponibles para un item de experiencia
 enum ExperienceAction { edit, delete, approve, reject, feature, unfeature, viewDetails }

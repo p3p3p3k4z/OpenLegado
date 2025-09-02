@@ -4,7 +4,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart'; // Para tipo LatLng
-import 'package:geocoding/geocoding.dart' as geocoding;
 import 'package:intl/date_symbol_data_local.dart';
 // import 'package:intl/intl.dart'; // Ya importado arriba
 import '../models/experience.dart'; // Asegúrate que aquí esté Experience y TicketSchedule
@@ -457,7 +456,7 @@ class _SubmitExperienceScreenState extends State<SubmitExperienceScreen> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _selectedCategory,
+                initialValue: _selectedCategory,
                 decoration: _inputDecoration(labelText: 'Categoría*', icon: Icons.category_outlined),
                 items: _categories.map((String category) => DropdownMenuItem<String>(value: category, child: Text(category))).toList(),
                 onChanged: (String? newValue) => setState(() { _selectedCategory = newValue; }),

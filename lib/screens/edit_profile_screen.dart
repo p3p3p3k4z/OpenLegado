@@ -12,7 +12,7 @@ import '../models/user.dart'; // Asegúrate que la ruta sea correcta
 class EditProfileScreen extends StatefulWidget {
   final AppUser currentUserData; // Pasamos los datos actuales para evitar una carga inicial
 
-  const EditProfileScreen({Key? key, required this.currentUserData}) : super(key: key);
+  const EditProfileScreen({super.key, required this.currentUserData});
 
   @override
   _EditProfileScreenState createState() => _EditProfileScreenState();
@@ -428,7 +428,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             ),
           ),
           // Fallback visual si la imagen no carga o es un placeholder
-          child: imageProvider is AssetImage && (imageProvider as AssetImage).assetName == _defaultPlaceholder
+          child: imageProvider is AssetImage && (imageProvider).assetName == _defaultPlaceholder
               ? Center(child: Icon(Icons.broken_image_outlined, color: Colors.grey[400], size: 30))
               : null,
         ),

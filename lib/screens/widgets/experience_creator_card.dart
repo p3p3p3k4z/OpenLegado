@@ -8,10 +8,10 @@ class ExperienceCreatorInfoCard extends StatelessWidget {
   final bool isLoading;
 
   const ExperienceCreatorInfoCard({
-    Key? key,
+    super.key,
     required this.creator,
     this.isLoading = false,
-  }) : super(key: key);
+  });
 
   String _getRoleDisplayName(String roleKey) {
     switch (roleKey.toLowerCase()) {
@@ -99,7 +99,7 @@ class ExperienceCreatorInfoCard extends StatelessWidget {
                     print('Error cargando imagen de perfil en ExperienceCreatorInfoCard: ${creator!.profileImageUrl}. Error: $exception');
                   },
                   // Child se muestra si backgroundImage es null o falla la carga
-                  child: (creator!.profileImageUrl == null || creator!.profileImageUrl!.isEmpty || creatorImageProvider is AssetImage && (creatorImageProvider as AssetImage).assetName == 'assets/images/default_avatar.png')
+                  child: (creator!.profileImageUrl == null || creator!.profileImageUrl!.isEmpty || creatorImageProvider is AssetImage && (creatorImageProvider).assetName == 'assets/images/default_avatar.png')
                       ? Text(
                       creator!.username != null && creator!.username!.isNotEmpty
                           ? creator!.username![0].toUpperCase()

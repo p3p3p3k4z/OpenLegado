@@ -206,7 +206,7 @@ class _ManageExperiencesTabState extends State<ManageExperiencesTab> {
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                           );
-                        }).toList(),
+                        }),
                       ] else if (experience.maxCapacity > 0) ...[
                         Text("Horarios: No específicos (usa capacidad general)", style: Theme.of(context).textTheme.titleSmall),
                         Text("Capacidad Máx. General: ${experience.maxCapacity}", style: Theme.of(context).textTheme.bodySmall),

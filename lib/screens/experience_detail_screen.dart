@@ -18,8 +18,7 @@ import 'widgets/experience_creator_card.dart';
 class ExperienceDetailScreen extends StatefulWidget {
   final Experience experience;
 
-  const ExperienceDetailScreen({Key? key, required this.experience})
-      : super(key: key);
+  const ExperienceDetailScreen({super.key, required this.experience});
 
   @override
   _ExperienceDetailScreenState createState() =>
@@ -861,7 +860,7 @@ class _ExperienceDetailScreenState extends State<ExperienceDetailScreen> {
         const Text('Selecciona un Horario:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF5D4037))),
         const SizedBox(height: 8),
         DropdownButtonFormField<TicketSchedule>(
-          value: _selectedSchedule, // El schedule actualmente seleccionado
+          initialValue: _selectedSchedule, // El schedule actualmente seleccionado
           isExpanded: true,
           decoration: InputDecoration(
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),

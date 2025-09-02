@@ -38,7 +38,7 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
       final userDoc = await _firestore.collection('users').doc(_currentUser!.uid).get();
       if (userDoc.exists && mounted) {
         setState(() {
-          _currentAppUser = AppUser.fromFirestore(userDoc as DocumentSnapshot<Map<String, dynamic>>);
+          _currentAppUser = AppUser.fromFirestore(userDoc);
           _isLoadingUser = false;
         });
       } else if (mounted) {
@@ -187,7 +187,7 @@ class _CreatorPanelScreenState extends State<CreatorPanelScreen> {
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         );
-                      }).toList(),
+                      }),
                     ] else if (experience.maxCapacity > 0) ...[
                       Text("Horarios: No específicos (usa capacidad general)", style: Theme.of(context).textTheme.titleSmall),
                       Text("Capacidad Máx. General: ${experience.maxCapacity}", style: Theme.of(context).textTheme.bodySmall),

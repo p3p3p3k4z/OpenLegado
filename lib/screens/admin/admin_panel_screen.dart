@@ -33,7 +33,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> with SingleTickerPr
       final userDoc = await _firestore.collection('users').doc(user.uid).get();
       if (userDoc.exists && mounted) {
         setState(() {
-          _currentAppUser = AppUser.fromFirestore(userDoc as DocumentSnapshot<Map<String, dynamic>>);
+          _currentAppUser = AppUser.fromFirestore(userDoc);
           _isLoadingUser = false;
         });
       } else if (mounted) {

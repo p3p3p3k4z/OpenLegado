@@ -287,7 +287,7 @@ Future<void> _getAndPrintFCMToken() async {
 // --- FIN: Funciones Auxiliares para Notificaciones ---
 
 class LegadoApp extends StatelessWidget {
-  const LegadoApp({Key? key}) : super(key: key);
+  const LegadoApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -350,6 +350,8 @@ class LegadoApp extends StatelessWidget {
 }
 
 class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -361,7 +363,7 @@ class HomeScreen extends StatelessWidget {
               background: Stack(
                 fit: StackFit.expand,
                 children: [
-                  Container(
+                  SizedBox(
                     width: double.infinity,
                     height: double.infinity,
                     child: Image.asset(
@@ -508,7 +510,7 @@ class HomeScreen extends StatelessWidget {
                       borderRadius: BorderRadius.circular(15),
                       child: Stack(
                         children: [
-                          Container(
+                          SizedBox(
                             width: double.infinity,
                             height: double.infinity,
                             child: Image.asset(
@@ -812,7 +814,7 @@ class HomeScreen extends StatelessWidget {
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                  child: Container(
+                  child: SizedBox(
                     height: 180,
                     width: double.infinity,
                     child: Image.asset(
@@ -923,7 +925,7 @@ class HomeScreen extends StatelessWidget {
                       style: DefaultTextStyle.of(context).style.copyWith(fontSize: 14),
                       children: [
                         TextSpan(
-                          text: '\$${price} MXN',
+                          text: '\$$price MXN',
                           style: TextStyle(
                               fontSize: 22,
                               fontWeight: FontWeight.bold,

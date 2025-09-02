@@ -354,8 +354,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 String displayName = path.split('/').last;
                 if (displayName.contains('.')) displayName = displayName.substring(0, displayName.lastIndexOf('.'));
                 displayName = displayName.replaceAll('_', ' ').replaceAll('-', ' ');
-                if (displayName.isNotEmpty) displayName = displayName[0].toUpperCase() + displayName.substring(1);
-                else displayName = "Imagen Local";
+                if (displayName.isNotEmpty) {
+                  displayName = displayName[0].toUpperCase() + displayName.substring(1);
+                } else {
+                  displayName = "Imagen Local";
+                }
 
                 return ListTile(
                   leading: CircleAvatar(
@@ -966,8 +969,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildFavoriteCard(Experience experience) {
     ImageProvider favImageProvider;
-    if (experience.imageAsset.startsWith('http')) favImageProvider = NetworkImage(experience.imageAsset);
-    else if (experience.imageAsset.startsWith('assets/')) favImageProvider = AssetImage(experience.imageAsset);
+    if (experience.imageAsset.startsWith('http')) {
+      favImageProvider = NetworkImage(experience.imageAsset);
+    } else if (experience.imageAsset.startsWith('assets/')) favImageProvider = AssetImage(experience.imageAsset);
     else favImageProvider = const AssetImage('assets/images/placeholder.png');
 
     return GestureDetector(
@@ -1008,8 +1012,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildBookingCard(Booking booking) {
     ImageProvider bookImageProvider;
-    if (booking.experienceImage.startsWith('http')) bookImageProvider = NetworkImage(booking.experienceImage);
-    else if (booking.experienceImage.startsWith('assets/')) bookImageProvider = AssetImage(booking.experienceImage);
+    if (booking.experienceImage.startsWith('http')) {
+      bookImageProvider = NetworkImage(booking.experienceImage);
+    } else if (booking.experienceImage.startsWith('assets/')) bookImageProvider = AssetImage(booking.experienceImage);
     else bookImageProvider = const AssetImage('assets/images/placeholder.png');
 
     return Card(

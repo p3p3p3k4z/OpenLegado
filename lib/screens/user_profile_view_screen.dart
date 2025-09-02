@@ -5,7 +5,7 @@ import '../models/user.dart'; // Asegúrate que la ruta a tu modelo AppUser sea 
 
 class UserProfileViewScreen extends StatefulWidget {
   final String userId;
-  const UserProfileViewScreen({Key? key, required this.userId}) : super(key: key);
+  const UserProfileViewScreen({super.key, required this.userId});
 
   @override
   _UserProfileViewScreenState createState() => _UserProfileViewScreenState();
@@ -135,9 +135,9 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
               print('Error cargando backgroundImage en CircleAvatar (View). URL: ${user.profileImageUrl}. Error: $exception');
             }
                 : null,
-            child: (backgroundImage is AssetImage && (backgroundImage as AssetImage).assetName == 'assets/images/default_avatar.png' || backgroundImage == null) && (user.username != null && user.username!.isNotEmpty)
+            child: (backgroundImage is AssetImage && (backgroundImage).assetName == 'assets/images/default_avatar.png') && (user.username != null && user.username!.isNotEmpty)
                 ? Text(user.username![0].toUpperCase(), style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onPrimaryContainer))
-                : ((backgroundImage is AssetImage && (backgroundImage as AssetImage).assetName == 'assets/images/default_avatar.png' || backgroundImage == null)
+                : ((backgroundImage is AssetImage && (backgroundImage).assetName == 'assets/images/default_avatar.png')
                 ? Icon(Icons.account_circle, size: 50, color: Theme.of(context).colorScheme.primary)
                 : null),
           ),

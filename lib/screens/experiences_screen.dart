@@ -629,13 +629,13 @@ Widget _buildExperienceCard(Experience experience) {
             }
           }
 
-          String _format(DateTime? d) {
+          String format(DateTime? d) {
             if (d == null) return '';
             String two(int n) => n.toString().padLeft(2, '0');
             return '${two(d.day)}/${two(d.month)}/${d.year}';
           }
 
-          Widget _dateBox({
+          Widget dateBox({
             required String placeholder,
             required DateTime? value,
             required VoidCallback onTap,
@@ -657,7 +657,7 @@ Widget _buildExperienceCard(Experience experience) {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        (_format(value).isNotEmpty) ? _format(value) : placeholder,
+                        (format(value).isNotEmpty) ? format(value) : placeholder,
                         style: const TextStyle(fontFamily: kFontFamily),
                       ),
                     ),
@@ -789,7 +789,7 @@ Widget _buildExperienceCard(Experience experience) {
                     Row(
                       children: [
                         Expanded(
-                          child: _dateBox(
+                          child: dateBox(
                             placeholder: 'Desde',
                             value: tempStart,
                             onTap: () => pickDate(isStart: true),
@@ -797,7 +797,7 @@ Widget _buildExperienceCard(Experience experience) {
                         ),
                         const SizedBox(width: 8),
                         Expanded(
-                          child: _dateBox(
+                          child: dateBox(
                             placeholder: 'Hasta',
                             value: tempEnd,
                             onTap: () => pickDate(isStart: false),
