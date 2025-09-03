@@ -1,5 +1,6 @@
 import java.util.Properties
 import java.io.FileInputStream
+import java.io.File
 
 val dotenv = Properties()
 val dotenvFile = File(rootDir.parentFile, ".env")
@@ -19,12 +20,14 @@ plugins {
 
 android {
     namespace = "com.example.legado_app"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        // Se agregó esta línea para habilitar el desugaring de la biblioteca
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -54,4 +57,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Se agregó esta línea para el soporte de "core library desugaring"
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }
