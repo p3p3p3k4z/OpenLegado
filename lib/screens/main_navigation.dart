@@ -1,5 +1,4 @@
 // En main_navigation.dart
-
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -8,7 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'explore_screen.dart';
 import 'experiences_screen.dart';
 import 'profile_screen.dart';
-import 'submit_experience_screen.dart'; // Asegúrate que esta importación esté
+import 'submit_experience_screen.dart';
 import 'admin/admin_panel_screen.dart';
 import 'creator/creator_panel_screen.dart';
 import 'moderator/moderator_panel_screen.dart';
@@ -25,8 +24,8 @@ class MainNavigation extends StatefulWidget {
 
 class _MainNavigationState extends State<MainNavigation> {
   int _selectedIndex = 0;
-  AppUser? _currentUserData;
-  Stream<AppUser?>? _userStream;
+  AppUser? _currentUserData; // Almacena los datos del AppUser deserializados
+  Stream<AppUser?>? _userStream; // Stream para escuchar cambios en los datos del usuario
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -34,9 +33,17 @@ class _MainNavigationState extends State<MainNavigation> {
   @override
   void initState() {
     super.initState();
+    _setupAuthListener();
+  }
+
+  void _setupAuthListener() {
     _auth.authStateChanges().listen((User? firebaseUser) {
-      if (mounted) {
-        if (firebaseUser != null) {
+      if (!mounted) return; // Si el widget ya no está montado, no hacer nada
+
+      if (firebaseUser != null) {
+        // Usuario ha iniciado sesión, escuchar sus datos de Firestore
+        if (_userStream == null || (_currentUserData?.uid != firebaseUser.uid)) {
+          // Solo reiniciar el stream si es necesario (nuevo usuario o primera vez)
           setState(() {
             _userStream = _firestore
                 .collection('users')
@@ -44,218 +51,235 @@ class _MainNavigationState extends State<MainNavigation> {
                 .snapshots()
                 .map((snapshot) {
               if (snapshot.exists) {
+                print("Datos de usuario recibidos desde Firestore: ${snapshot.data()}");
                 return AppUser.fromFirestore(snapshot);
               }
-              return null;
+              print("Snapshot de usuario no existe para UID: ${firebaseUser.uid}");
+              return null; // El documento del usuario no existe
+            }).handleError((error) {
+              print("Error en el stream de datos del usuario: $error");
+              return null; // Manejar error en el stream
             });
           });
-        } else {
-          setState(() {
-            _currentUserData = null;
-            _userStream = null;
-            _selectedIndex = 0;
-          });
         }
+      } else {
+        // Usuario ha cerrado sesión
+        setState(() {
+          _currentUserData = null;
+          _userStream = null; // Detener el stream anterior
+          _selectedIndex = 0; // Volver a la pestaña por defecto
+          print("Usuario cerró sesión. Navegación reiniciada.");
+        });
       }
     });
   }
 
-  void _onItemTapped(int index, List<Widget> currentScreens) {
-    if (index >= 0 && index < currentScreens.length) {
-      setState(() {
-        _selectedIndex = index;
-      });
-    } else if (currentScreens.isNotEmpty) {
-      setState(() {
-        _selectedIndex = 0;
-      });
-    }
+  void _onItemTapped(int index) {
+    // La validación del índice la hará el BottomNavigationBar y el IndexedStack
+    // al usar la longitud de las listas generadas en build.
+    setState(() {
+      _selectedIndex = index;
+    });
   }
 
-  // Método para cambiar de pestaña programáticamente
   void _navigateToTab(int tabIndex) {
-    // Aquí, currentScreens se obtendrá del contexto del build más reciente.
-    // Necesitamos asegurarnos de que el índice es válido para las pantallas
-    // que estarán disponibles cuando se reconstruya el widget.
-    // La forma más simple es confiar en que el `build` método
-    // generará `screensToShow` correctamente, y que `_onItemTapped`
-    // o el `IndexedStack` manejarán un índice temporalmente inválido
-    // si la lista de pantallas aún no refleja el cambio.
-
-    // Llamamos a _onItemTapped para que maneje la lógica de actualización del índice
-    // Necesitaremos la lista de pantallas que ESTARÁ disponible.
-    // Esto es un poco circular. Una solución más directa:
+    // Simplemente actualiza el índice. El método build se encargará de reconstruir
+    // con las pantallas y pestañas correctas.
     if (mounted) {
-      // Simplemente actualiza el índice. El build se encargará del resto.
-      // La validación del índice ocurrirá en el IndexedStack y en el BottomNavigationBar.
       setState(() {
         _selectedIndex = tabIndex;
       });
     }
   }
 
+  // --- Métodos Helper para construir la UI ---
+
+  String _getEffectiveRole(AppUser? userData, User? firebaseUser) {
+    if (userData != null) {
+      return userData.role; // Rol desde Firestore tiene prioridad
+    }
+    if (firebaseUser != null) {
+      // Si hay un usuario de Firebase pero no datos de AppUser (quizás aún cargando o no existe el doc)
+      // podríamos considerarlo 'user' por defecto, o esperar. Por ahora, 'user'.
+      return 'user';
+    }
+    return 'guest'; // No hay usuario autenticado
+  }
+
+  List<Widget> _buildScreens(String effectiveRole) {
+    List<Widget> screens = [];
+
+    // Pestañas base (todos los roles)
+    screens.add(const ExploreScreen());
+    screens.add(const ExperiencesScreen());
+
+    // Pestaña "Subir Experiencia" (solo para creator y admin)
+    if (effectiveRole == 'creator' || effectiveRole == 'admin') {
+      screens.add(SubmitExperienceScreen(
+        onSubmitSuccess: () {
+          // Navegar a la pestaña "Explorar" (índice 0) después de subir.
+          // O podrías tener una lógica para ir al panel del creador/admin.
+          _navigateToTab(0);
+        },
+        // experienceToEdit: null, // Si es solo para nuevas desde aquí
+      ));
+    }
+
+    // Paneles específicos de rol
+    switch (effectiveRole) {
+      case 'admin':
+        screens.add(const AdminPanelScreen());
+        break;
+      case 'moderator':
+        screens.add(const ModeratorPanelScreen());
+        break;
+      case 'creator':
+      // Si es solo 'creator' y no 'admin' (admin ya tiene su panel)
+        screens.add(const CreatorPanelScreen());
+        break;
+    }
+
+    // Pestaña de Perfil (todos los roles, excepto guest si se decide ocultar)
+    // Si queremos que guest no vea perfil, podríamos añadir: if (effectiveRole != 'guest')
+    screens.add(const ProfileScreen());
+
+    return screens;
+  }
+
+  List<BottomNavigationBarItem> _buildNavBarItems(String effectiveRole) {
+    List<BottomNavigationBarItem> items = [];
+
+    // Ítems base (todos los roles)
+    items.add(const BottomNavigationBarItem(
+      icon: Icon(Icons.explore_outlined),
+      activeIcon: Icon(Icons.explore),
+      label: 'Explorar',
+    ));
+    items.add(const BottomNavigationBarItem(
+      icon: Icon(Icons.calendar_today_outlined),
+      activeIcon: Icon(Icons.calendar_today),
+      label: 'Experiencias',
+    ));
+
+    // Ítem "Subir Experiencia"
+    if (effectiveRole == 'creator' || effectiveRole == 'admin') {
+      items.add(const BottomNavigationBarItem(
+        icon: Icon(Icons.add_circle_outline),
+        activeIcon: Icon(Icons.add_circle),
+        label: 'Subir',
+      ));
+    }
+
+    // Ítems de Panel específico del rol
+    switch (effectiveRole) {
+      case 'admin':
+        items.add(const BottomNavigationBarItem(
+          icon: Icon(Icons.admin_panel_settings_outlined),
+          activeIcon: Icon(Icons.admin_panel_settings),
+          label: 'Admin',
+        ));
+        break;
+      case 'moderator':
+        items.add(const BottomNavigationBarItem(
+          icon: Icon(Icons.shield_outlined),
+          activeIcon: Icon(Icons.shield),
+          label: 'Moderar',
+        ));
+        break;
+      case 'creator':
+        items.add(const BottomNavigationBarItem(
+          icon: Icon(Icons.dashboard_outlined),
+          activeIcon: Icon(Icons.dashboard),
+          label: 'Mi Panel',
+        ));
+        break;
+    }
+
+    // Ítem de Perfil
+    items.add(const BottomNavigationBarItem(
+      icon: Icon(Icons.person_outline),
+      activeIcon: Icon(Icons.person),
+      label: 'Mi Perfil',
+    ));
+
+    return items;
+  }
 
   @override
   Widget build(BuildContext context) {
+    // StreamBuilder escucha los datos del AppUser desde Firestore
     return StreamBuilder<AppUser?>(
       stream: _userStream,
       builder: (context, userSnapshot) {
-        if (_auth.currentUser != null && userSnapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        // Caso 1: Usuario de Firebase existe pero datos de AppUser aún cargando
+        if (_auth.currentUser != null && userSnapshot.connectionState == ConnectionState.waiting && !userSnapshot.hasData) {
+          print("MainNavigation: Esperando datos de AppUser...");
+          return const Scaffold(body: Center(child: CircularProgressIndicator(color: Color(0xFFE67E22))));
         }
 
-        _currentUserData = userSnapshot.data;
-        String effectiveRole = 'guest';
-        if (_currentUserData != null) {
-          effectiveRole = _currentUserData!.role;
-        } else if (_auth.currentUser != null && !userSnapshot.hasData && userSnapshot.connectionState != ConnectionState.waiting) {
-          effectiveRole = 'user';
+        // Almacenar los datos de AppUser cuando estén disponibles
+        if (userSnapshot.hasData) {
+          _currentUserData = userSnapshot.data;
+          print("MainNavigation: Datos de AppUser actualizados: Rol ${_currentUserData?.role}");
+        } else if (userSnapshot.hasError) {
+          print("MainNavigation: Error en userSnapshot: ${userSnapshot.error}");
         }
 
-        List<Widget> screensToShow = [];
-        List<BottomNavigationBarItem> navBarItems = [];
 
-        // --- Pestañas base para 'guest' y 'user' (y todos los demás roles) ---
-        screensToShow.addAll([
-          const ExploreScreen(),
-          const ExperiencesScreen(),
-        ]);
-        navBarItems.addAll([
-          BottomNavigationBarItem(
-            icon: Image.asset("assets/navigation_icons/hogar.png", width: 25, height: 25),
-            activeIcon: Image.asset("assets/navigation_icons/hogar_rojo.png", width: 25, height: 25),
-            label: 'Inicio',
-          ),
-          BottomNavigationBarItem(
-            icon: Image.asset("assets/navigation_icons/destellos.png", width: 25, height: 25),
-            activeIcon: Image.asset("assets/navigation_icons/destellos_rojo.png", width: 25, height: 25),
-            label: 'Experiencias',
-          ),
-        ]);
+        // Determinar el rol efectivo
+        final String effectiveRole = _getEffectiveRole(_currentUserData, _auth.currentUser);
+        print("MainNavigation: Rol efectivo determinado: $effectiveRole");
 
-        // Para saber a qué índice navegar después de subir una experiencia.
-        // Podrías hacerlo más dinámico si el panel del creador puede no estar.
-        int targetIndexAfterSubmit = 0; // Por defecto a "Explorar" (índice 0)
-
-        // --- Pestañas adicionales basadas en el rol efectivo ---
-        if (effectiveRole != 'guest') {
-          // Pestaña "Subir Experiencia"
-          if (effectiveRole == 'creator' || effectiveRole == 'admin') {
-            screensToShow.add(
-              SubmitExperienceScreen(
-                onSubmitSuccess: () {
-                  // Navega a la pestaña "Explorar" (índice 0) después de enviar.
-                  // O al panel del creador si esa es la preferencia.
-                  // Por ahora, vamos a "Explorar".
-                  _navigateToTab(targetIndexAfterSubmit);
-                },
-                // Aquí deberías pasar `experienceToEdit` si esta pantalla
-                // también se usa para editar desde la barra de navegación.
-                // Por ejemplo:
-                // experienceToEdit: _someExperienceToEditLogic(),
-                // Si solo es para NUEVAS experiencias desde aquí, puedes omitirlo
-                // o pasar `null` explícitamente si tu constructor lo permite sin `required`.
-                // Dado que `experienceToEdit` en `SubmitExperienceScreen` es opcional,
-                // no necesitamos pasarlo si no estamos editando desde aquí.
-              ),
-            );
-            navBarItems.add(
-              const BottomNavigationBarItem(
-                icon: Icon(Icons.add_circle_outline),
-                activeIcon: Icon(Icons.add_circle),
-                label: 'Subir',
-              ),
-            );
-          }
-
-          // Pestañas de Panel específico del rol
-          if (effectiveRole == 'admin') {
-            screensToShow.add(const AdminPanelScreen());
-            navBarItems.add(
-              const BottomNavigationBarItem(
-                icon: Icon(Icons.admin_panel_settings_outlined),
-                activeIcon: Icon(Icons.admin_panel_settings),
-                label: 'Admin',
-              ),
-            );
-            // Si un admin sube algo, quizás quiera ir a su panel.
-            // targetIndexAfterSubmit = screensToShow.length -1; // Índice del AdminPanel recién añadido
-          } else if (effectiveRole == 'moderator') {
-            screensToShow.add(const ModeratorPanelScreen());
-            navBarItems.add(
-              const BottomNavigationBarItem(
-                icon: Icon(Icons.shield_outlined),
-                activeIcon: Icon(Icons.shield),
-                label: 'Moderar',
-              ),
-            );
-          } else if (effectiveRole == 'creator') { // Solo 'creator', no 'admin' que ya tiene su panel
-            // Asumimos que si es solo 'creator', quiere ir a su panel después de subir.
-            // targetIndexAfterSubmit = screensToShow.length; // El índice ANTES de añadir el panel del creador.
-            // OJO: La pestaña "Subir" ya fue añadida.
-            // Hay que ser cuidadoso con el orden.
-
-            // Para simplificar, mantenemos targetIndexAfterSubmit = 0 (Explorar).
-            // Si quieres que vaya al CreatorPanel, debes calcular el índice correcto
-            // de CreatorPanelScreen en la lista screensToShow.
-            // Ejemplo: si CreatorPanel es la última pestaña para un 'creator'
-            // (después de Explorar, Experiencias, Subir):
-            // targetIndexAfterSubmit = 3; (o screensToShow.length)
-
-            screensToShow.add(const CreatorPanelScreen());
-            navBarItems.add(
-              const BottomNavigationBarItem(
-                icon: Icon(Icons.dashboard_outlined),
-                activeIcon: Icon(Icons.dashboard),
-                label: 'Mi Panel',
-              ),
-            );
-          }
-        }
-
-        // Pestaña de Perfil (siempre al final para todos)
-        screensToShow.add(const ProfileScreen());
-        navBarItems.add(
-          BottomNavigationBarItem(
-            icon: Image.asset("assets/navigation_icons/usuario.png", width: 25, height: 25),
-            activeIcon: Image.asset("assets/navigation_icons/usuario_rojo.png", width: 25, height: 25),
-            label: 'Perfil',
-          ),
-        );
+        // Construir listas de pantallas y navBarItems basadas en el rol
+        final List<Widget> screensToShow = _buildScreens(effectiveRole);
+        final List<BottomNavigationBarItem> navBarItems = _buildNavBarItems(effectiveRole);
 
         // Ajustar _selectedIndex si después de un cambio de rol queda fuera de rango
-        int currentSelectedIndex = _selectedIndex;
-        if (currentSelectedIndex >= screensToShow.length && screensToShow.isNotEmpty) {
-          currentSelectedIndex = 0; // Ir a la primera pestaña
-        } else if (screensToShow.isEmpty && currentSelectedIndex != 0) {
-          currentSelectedIndex = 0;
+        // Esto se hace después de que las listas `screensToShow` y `navBarItems` se hayan generado
+        // con el rol actual, para asegurar que el índice sea válido para ellas.
+        int validatedSelectedIndex = _selectedIndex;
+        if (screensToShow.isNotEmpty) {
+          if (validatedSelectedIndex >= screensToShow.length || validatedSelectedIndex < 0) {
+            print("MainNavigation: Índice seleccionado ($validatedSelectedIndex) fuera de rango para ${screensToShow.length} pantallas. Reiniciando a 0.");
+            validatedSelectedIndex = 0; // Ir a la primera pestaña si está fuera de rango
+            // Programar la actualización del estado para después del frame actual
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && _selectedIndex != validatedSelectedIndex) { // Comprobar si realmente necesita cambiar
+                setState(() {
+                  _selectedIndex = validatedSelectedIndex;
+                });
+              }
+            });
+          }
+        } else {
+          // Si no hay pantallas, el índice debería ser 0 (aunque no se mostrará nada)
+          // Esto es más un caso de borde, usualmente siempre habrá al menos Perfil o Explorar.
+          if (validatedSelectedIndex != 0) {
+            validatedSelectedIndex = 0;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && _selectedIndex != validatedSelectedIndex) {
+                setState(() {
+                  _selectedIndex = validatedSelectedIndex;
+                });
+              }
+            });
+          }
         }
 
-        // Usar addPostFrameCallback para evitar errores de setState durante el build
-        if (_selectedIndex != currentSelectedIndex) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              setState(() {
-                _selectedIndex = currentSelectedIndex;
-              });
-            }
-          });
-        }
 
         return Scaffold(
-          body: screensToShow.isEmpty
-              ? const Center(child: Text("Sin pantallas disponibles")) // O un CircularProgressIndicator
+          body: (screensToShow.isEmpty)
+              ? const Center(child: Text("Cargando interfaz...")) // Placeholder si no hay pantallas
               : IndexedStack(
-            index: (_selectedIndex >= 0 && _selectedIndex < screensToShow.length) ? _selectedIndex : 0,
+            // Usar el índice validado
+            index: (validatedSelectedIndex >=0 && validatedSelectedIndex < screensToShow.length) ? validatedSelectedIndex : 0,
             children: screensToShow,
           ),
-          bottomNavigationBar: navBarItems.isEmpty
+          bottomNavigationBar: (navBarItems.isEmpty)
               ? null
               : Container(
             decoration: BoxDecoration(
-              border: Border(
-                top: BorderSide( color: Colors.white, width: 5),
-              ),
+              border: Border(top: BorderSide(color: const Color(0xFFE67E22), width: 1.5)),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.08),
@@ -265,24 +289,17 @@ class _MainNavigationState extends State<MainNavigation> {
               ],
             ),
             child: BottomNavigationBar(
-              currentIndex: (_selectedIndex >= 0 && _selectedIndex < navBarItems.length) ? _selectedIndex : 0,
-              onTap: (index) => _onItemTapped(index, screensToShow), // Pasa screensToShow actual
+              // Usar el índice validado
+              currentIndex: (validatedSelectedIndex >=0 && validatedSelectedIndex < navBarItems.length) ? validatedSelectedIndex : 0,
+              onTap: _onItemTapped, // Simplificado, ya no necesita pasar screensToShow
               type: BottomNavigationBarType.fixed,
-              selectedItemColor: const Color(0xFF952E07),
-              unselectedItemColor: const Color.fromARGB(255, 100, 100, 100),
+              selectedItemColor: const Color(0xFFE67E22),
+              unselectedItemColor: const Color(0xFF757575),
               backgroundColor: Colors.white,
-              elevation: 0,
+              elevation: 0, // La elevación ya está en el Container por la sombra
               selectedFontSize: 12,
               unselectedFontSize: 12,
               items: navBarItems,
-              selectedLabelStyle: const TextStyle(
-                fontFamily: 'Montserrat',
-                fontWeight: FontWeight.w600,
-              ),
-              unselectedLabelStyle: const TextStyle(
-                fontFamily: 'Montserrat',
-                fontWeight: FontWeight.w500,
-              ),
             ),
           ),
         );
