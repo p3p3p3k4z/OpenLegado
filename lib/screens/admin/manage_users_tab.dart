@@ -224,7 +224,7 @@ class _ManageUsersTabState extends State<ManageUsersTab> {
                 children: [
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      initialValue: _selectedRoleFilter,
+                      value: _selectedRoleFilter,
                       decoration: InputDecoration(
                         labelText: 'Filtrar por Rol',
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
@@ -243,7 +243,7 @@ class _ManageUsersTabState extends State<ManageUsersTab> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      initialValue: _selectedStatusFilter,
+                      value: _selectedStatusFilter,
                       decoration: InputDecoration(
                         labelText: 'Filtrar por Estado',
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
@@ -360,7 +360,7 @@ class _ManageUsersTabState extends State<ManageUsersTab> {
                           SizedBox(
                             width: 120, // Ajustar ancho si es necesario
                             child: DropdownButtonFormField<String>(
-                              initialValue: user.role,
+                              value: user.role,
                               isDense: true,
                               isExpanded: true,
                               decoration: InputDecoration(
