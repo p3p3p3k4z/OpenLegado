@@ -39,12 +39,16 @@ android {
         applicationId = "com.example.legado_app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+
+        // ESTA ES LA LÍNEA MODIFICADA:
+        minSdk = 23
+
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
         manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = dotenv["GOOGLE_MAPS_API_KEY"]?.toString() ?: ""
     }
+
 
     buildTypes {
         release {
