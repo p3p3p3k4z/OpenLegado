@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/user.dart'; // Para AppUser
 import './manage_experiences_tab.dart';
 import './manage_users_tab.dart';
+import './manage_themed_collections_tab.dart'; // <<<--- 1. AÑADE ESTA IMPORTACIÓN
 
 class AdminPanelScreen extends StatefulWidget {
   const AdminPanelScreen({super.key});
@@ -23,7 +24,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> with SingleTickerPr
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this); // 2 pestañas: Experiencias, Usuarios
+    _tabController = TabController(length: 3, vsync: this); // <<<--- 2. CAMBIA LENGTH A 3
     _loadCurrentUser();
   }
 
@@ -31,13 +32,15 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> with SingleTickerPr
     final user = _auth.currentUser;
     if (user != null) {
       final userDoc = await _firestore.collection('users').doc(user.uid).get();
-      if (userDoc.exists && mounted) {
-        setState(() {
-          _currentAppUser = AppUser.fromFirestore(userDoc);
-          _isLoadingUser = false;
-        });
-      } else if (mounted) {
-        _handleLoadingError("Documento de usuario no encontrado.");
+      if (mounted) { // Buena práctica verificar mounted antes de setState
+        if (userDoc.exists) {
+          setState(() {
+            _currentAppUser = AppUser.fromFirestore(userDoc);
+            _isLoadingUser = false;
+          });
+        } else {
+          _handleLoadingError("Documento de usuario no encontrado.");
+        }
       }
     } else if (mounted) {
       _handleLoadingError("No hay usuario autenticado.");
@@ -45,9 +48,11 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> with SingleTickerPr
   }
 
   void _handleLoadingError(String message) {
-    setState(() {
-      _isLoadingUser = false;
-    });
+    if (mounted) { // Buena práctica
+      setState(() {
+        _isLoadingUser = false;
+      });
+    }
     print("Error AdminPanel: $message");
     // Podrías mostrar un SnackBar o redirigir
   }
@@ -86,14 +91,31 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> with SingleTickerPr
     return Scaffold(
       appBar: AppBar(
         title: const Text('Panel de Administración'),
+        // backgroundColor: Colors.blueGrey[900], // Ejemplo si quieres un color de fondo para AppBar
+        // foregroundColor: Colors.white, // Color para el título y acciones del AppBar
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: Theme.of(context).colorScheme.onPrimary,
-          labelColor: Theme.of(context).colorScheme.onPrimary,
-          unselectedLabelColor: Theme.of(context).colorScheme.onPrimary.withOpacity(0.7),
+          indicatorColor: Colors.orangeAccent, // Color del indicador de la pestaña activa
+          labelColor: Colors.orange,          // Color del ICONO y TEXTO de la pestaña activa
+          unselectedLabelColor: Colors.orange.withOpacity(0.6), // Color del ICONO y TEXTO de las pestañas inactivas
+          isScrollable: true,
+          // indicatorWeight: 3.0, // Grosor del indicador
+          // indicatorPadding: EdgeInsets.symmetric(horizontal: 8.0), // Padding para el indicador
+          // labelStyle: TextStyle(fontWeight: FontWeight.bold), // Estilo para el texto de la pestaña activa
+          // unselectedLabelStyle: TextStyle(fontWeight: FontWeight.normal), // Estilo para el texto de la pestaña inactiva
           tabs: const [
-            Tab(icon: Icon(Icons.event_note_outlined), text: 'Experiencias'),
-            Tab(icon: Icon(Icons.people_alt_outlined), text: 'Usuarios'),
+            Tab(
+              icon: Icon(Icons.event_note_outlined), // El color lo tomará de labelColor/unselectedLabelColor
+              text: 'Experiencias',
+            ),
+            Tab(
+              icon: Icon(Icons.people_alt_outlined),
+              text: 'Usuarios',
+            ),
+            Tab(
+              icon: Icon(Icons.collections_bookmark_outlined),
+              text: 'Colecciones',
+            ),
           ],
         ),
       ),
@@ -101,10 +123,11 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> with SingleTickerPr
         controller: _tabController,
         children: [
           ManageExperiencesTab(
-            currentUserRole: _currentAppUser!.role, // Será 'admin'
+            currentUserRole: _currentAppUser!.role,
             currentUserId: _currentAppUser!.uid,
           ),
           const ManageUsersTab(),
+          const ManageThemedCollectionsTab(), // <<<--- 4. AÑADE EL WIDGET DE LA NUEVA VISTA
         ],
       ),
     );
