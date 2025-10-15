@@ -30,6 +30,33 @@ Esta versión *Open Source* presenta un núcleo funcional completo:
 * **Vistas Detalladas:** Páginas con información completa, **integración de reseñas** y horarios.
 * **Integración de Datos:** Uso de base de datos para `users`, `experiences`, `bookings`, y `reviews`.
 
+-----
+
+## 📸 Vistas de la Aplicación
+
+Para apreciar el diseño y la funcionalidad del proyecto, aquí hay algunas capturas de pantalla clave:
+
+\<p align="center"\>
+\<img src="assets/preview1" alt="Vista Principal de Exploración" width="280"/\>
+\<img src="assets/preview2" alt="Vista de Detalle de Experiencia" width="280"/\>
+\<img src="assets/preview3" alt="Vista de Perfil de Usuario" width="280"/\>
+\</p\>
+
+-----
+
+## 🔑 Cuenta de Acceso de Administrador (Demo)
+
+Para que los usuarios puedan explorar las funcionalidades de moderación y administración, se proporciona una cuenta demo.
+
+| Rol | Correo Electrónico | Contraseña |
+| :--- | :--- | :--- |
+| **Administrador (Demo)** | `admin@legado.com` | `legado777` |
+
+⚠️ **Advertencia y Responsabilidad:**
+Esta cuenta es para **uso exclusivo de demostración y pruebas funcionales**. Los datos en esta cuenta pueden ser modificados o eliminados en cualquier momento por otros usuarios. **Se ruega a la comunidad que utilice esta cuenta con responsabilidad y no realice cambios maliciosos o destructivos,** ya que el propósito es mantener la integridad de la demostración para todos.
+
+-----
+
 ### Últimas Actualizaciones Incluidas
 
 Esta copia contiene las siguientes mejoras clave antes de la transferencia:
