@@ -36,11 +36,11 @@ Esta versión *Open Source* presenta un núcleo funcional completo:
 
 Para apreciar el diseño y la funcionalidad del proyecto, aquí hay algunas capturas de pantalla clave:
 
-\<p align="center"\>
-\<img src="assets/preview1" alt="Vista Principal de Exploración" width="280"/\>
-\<img src="assets/preview2" alt="Vista de Detalle de Experiencia" width="280"/\>
-\<img src="assets/preview3" alt="Vista de Perfil de Usuario" width="280"/\>
-\</p\>
+<p align="center">
+<img src="assets/preview1.jpg" alt="Vista Principal de Exploración" width="280"/>
+<img src="assets/preview2.jpg" alt="Vista de Detalle de Experiencia" width="280"/>
+<img src="assets/preview3.jpg" alt="Vista de Perfil de Usuario" width="280"/>
+</p>
 
 -----
 
