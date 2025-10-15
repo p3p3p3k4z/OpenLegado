@@ -1,1 +1,39 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"legado-app-eef97","appId":"1:285074268329:android:432f2cf1aab5cafc7109b8","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"legado-app-eef97","configurations":{"android":"1:285074268329:android:432f2cf1aab5cafc7109b8","ios":"1:285074268329:ios:05c7c77a5dcf45d97109b8","macos":"1:285074268329:ios:05c7c77a5dcf45d97109b8","web":"1:285074268329:web:76be2581168a64337109b8","windows":"1:285074268329:web:da9fb693fc412f727109b8"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "legado-app-eef97",
+          "appId": "1:285074268329:android:432f2cf1aab5cafc7109b8",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "legado-app-eef97",
+          "configurations": {
+            "android": "1:285074268329:android:432f2cf1aab5cafc7109b8",
+            "ios": "1:285074268329:ios:05c7c77a5dcf45d97109b8",
+            "macos": "1:285074268329:ios:05c7c77a5dcf45d97109b8",
+            "web": "1:285074268329:web:76be2581168a64337109b8",
+            "windows": "1:285074268329:web:da9fb693fc412f727109b8"
+          }
+        }
+      }
+    }
+  },
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}
